@@ -9,6 +9,8 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 
 class MainActivity : Activity() {
 
@@ -18,7 +20,8 @@ class MainActivity : Activity() {
      * Converts single-finger movement over the TW2 map
      * into mouse movement.
      *
-     * KEEP THIS - this is what makes map dragging work.
+     * This is the version that allowed the map to be
+     * dragged around correctly.
      */
     private val touchMouseBridge = """
         (function() {
@@ -73,10 +76,6 @@ class MainActivity : Activity() {
                 const y = startY;
                 const h = window.innerHeight;
 
-                /*
-                 * Don't intercept the top and bottom
-                 * TW2 interface bars.
-                 */
                 if (y < 100) return false;
                 if (y > h - 120) return false;
 
@@ -86,7 +85,9 @@ class MainActivity : Activity() {
             function mouse(type, x, y, element) {
 
                 if (!element) {
-                    element = document.elementFromPoint(x, y);
+
+                    element =
+                        document.elementFromPoint(x, y);
                 }
 
                 if (!element) return;
@@ -121,10 +122,6 @@ class MainActivity : Activity() {
                 "touchstart",
                 function(e) {
 
-                    /*
-                     * Two fingers belong to WebView
-                     * pinch zoom. Don't interfere.
-                     */
                     if (e.touches.length !== 1) {
 
                         mapTouch = false;
@@ -273,8 +270,8 @@ class MainActivity : Activity() {
 
 
     /*
-     * Keep the wide viewport and full manual
-     * pinch-zoom range that is working now.
+     * Viewport setup that gave us the
+     * working large pinch-zoom range.
      */
     private val viewportFix = """
         (function() {
@@ -341,7 +338,8 @@ class MainActivity : Activity() {
             savedInstanceState
         );
 
-        webView = WebView(this);
+        webView =
+            WebView(this);
 
         setContentView(
             webView
@@ -363,7 +361,7 @@ class MainActivity : Activity() {
                     webView,
                     true
                 );
-            }
+            };
 
 
         webView.settings.apply {
@@ -395,7 +393,7 @@ class MainActivity : Activity() {
 
 
             /*
-             * KEEP pinch zoom enabled.
+             * Keep Android pinch zoom enabled.
              */
             builtInZoomControls = true;
 
@@ -406,7 +404,7 @@ class MainActivity : Activity() {
 
             /*
              * Desktop Chrome UA prevents TW2
-             * redirecting to Google Play.
+             * redirecting us to the Android app.
              */
             userAgentString =
                 "Mozilla/5.0 " +
@@ -414,12 +412,49 @@ class MainActivity : Activity() {
                 "AppleWebKit/537.36 " +
                 "(KHTML, like Gecko) " +
                 "Chrome/140.0.0.0 " +
-                "Safari/537.36"
+                "Safari/537.36";
+        };
+
+
+        /*
+         * =====================================================
+         * TW2 INTELLIGENCE DASHBOARD
+         * =====================================================
+         *
+         * Load tw2-intel.js from:
+         *
+         * app/src/main/assets/tw2-intel.js
+         *
+         * It MUST run at document-start because the Intel
+         * dashboard hooks window.Worker before TW2 creates
+         * its socket worker.
+         */
+        if (
+            WebViewFeature.isFeatureSupported(
+                WebViewFeature.DOCUMENT_START_SCRIPT
+            )
+        ) {
+
+            val intelScript =
+                assets
+                    .open("tw2-intel.js")
+                    .bufferedReader()
+                    .use {
+                        it.readText()
+                    }
+
+            WebViewCompat.addDocumentStartJavaScript(
+                webView,
+                intelScript,
+                setOf(
+                    "https://*.tribalwars2.com"
+                )
+            )
         }
 
 
         webView.webChromeClient =
-            WebChromeClient()
+            WebChromeClient();
 
 
         webView.webViewClient =
@@ -435,12 +470,12 @@ class MainActivity : Activity() {
                         request
                             ?.url
                             ?.toString()
-                            ?: return false
+                            ?: return false;
 
 
                     /*
-                     * Don't let TW2 send us
-                     * to Google Play.
+                     * Don't let TW2 send us to
+                     * Google Play.
                      */
                     if (
                         url.startsWith(
@@ -454,11 +489,11 @@ class MainActivity : Activity() {
                         )
                     ) {
 
-                        return true
+                        return true;
                     }
 
 
-                    return false
+                    return false;
                 }
 
 
@@ -485,11 +520,11 @@ class MainActivity : Activity() {
                         )
                     ) {
 
-                        return true
+                        return true;
                     }
 
 
-                    return false
+                    return false;
                 }
 
 
@@ -501,7 +536,7 @@ class MainActivity : Activity() {
                     super.onPageFinished(
                         view,
                         url
-                    )
+                    );
 
 
                     if (
@@ -511,39 +546,24 @@ class MainActivity : Activity() {
                     ) {
 
                         /*
-                         * Keep our working TW2 viewport.
+                         * Keep our working viewport/zoom.
                          */
                         view?.evaluateJavascript(
                             viewportFix,
                             null
-                        )
+                        );
 
 
                         /*
-                         * Keep working map dragging.
+                         * Keep our working map dragging.
                          */
                         view?.evaluateJavascript(
                             touchMouseBridge,
                             null
-                        )
-
-
-                        /*
-                         * FINAL CHANGE:
-                         *
-                         * Start the WebView further zoomed out.
-                         *
-                         * This does NOT disable pinch zoom.
-                         */
-                        view?.postDelayed(
-                            {
-                                view.setInitialScale(50)
-                            },
-                            3500
-                        )
+                        );
                     }
                 }
-            }
+            };
 
 
         if (
@@ -552,13 +572,13 @@ class MainActivity : Activity() {
 
             webView.loadUrl(
                 "https://en.tribalwars2.com/"
-            )
+            );
 
         } else {
 
             webView.restoreState(
                 savedInstanceState
-            )
+            );
         }
     }
 
@@ -569,11 +589,11 @@ class MainActivity : Activity() {
 
         webView.saveState(
             outState
-        )
+        );
 
         super.onSaveInstanceState(
             outState
-        )
+        );
     }
 
 
@@ -586,19 +606,19 @@ class MainActivity : Activity() {
             webView.canGoBack()
         ) {
 
-            webView.goBack()
+            webView.goBack();
 
         } else {
 
-            super.onBackPressed()
+            super.onBackPressed();
         }
     }
 
 
     override fun onDestroy() {
 
-        webView.destroy()
+        webView.destroy();
 
-        super.onDestroy()
+        super.onDestroy();
     }
 }
