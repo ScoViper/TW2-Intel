@@ -14,6 +14,108 @@ class MainActivity : Activity() {
 
     private lateinit var webView: WebView
 
+    private val touchMouseBridge = """
+        (function() {
+            if (window.__tw2TouchMouseInstalled) return;
+            window.__tw2TouchMouseInstalled = true;
+
+            let startX = 0;
+            let startY = 0;
+            let lastX = 0;
+            let lastY = 0;
+            let dragging = false;
+            let target = null;
+
+            const DRAG_THRESHOLD = 8;
+
+            function mouse(type, x, y, element) {
+                if (!element) {
+                    element = document.elementFromPoint(x, y);
+                }
+
+                if (!element) return;
+
+                const event = new MouseEvent(type, {
+                    bubbles: true,
+                    cancelable: true,
+                    view: window,
+                    clientX: x,
+                    clientY: y,
+                    screenX: x,
+                    screenY: y,
+                    button: 0,
+                    buttons: type === "mouseup" ? 0 : 1
+                });
+
+                element.dispatchEvent(event);
+            }
+
+            document.addEventListener("touchstart", function(e) {
+                if (e.touches.length !== 1) return;
+
+                const t = e.touches[0];
+
+                startX = t.clientX;
+                startY = t.clientY;
+                lastX = startX;
+                lastY = startY;
+
+                dragging = false;
+                target = document.elementFromPoint(startX, startY);
+
+            }, true);
+
+            document.addEventListener("touchmove", function(e) {
+                if (e.touches.length !== 1) return;
+
+                const t = e.touches[0];
+
+                const dx = t.clientX - startX;
+                const dy = t.clientY - startY;
+
+                if (!dragging &&
+                    Math.sqrt(dx * dx + dy * dy) > DRAG_THRESHOLD) {
+
+                    dragging = true;
+                    mouse("mousedown", startX, startY, target);
+                }
+
+                if (dragging) {
+                    e.preventDefault();
+
+                    lastX = t.clientX;
+                    lastY = t.clientY;
+
+                    mouse("mousemove", lastX, lastY, target);
+                }
+
+            }, { capture: true, passive: false });
+
+            document.addEventListener("touchend", function(e) {
+
+                if (dragging) {
+                    e.preventDefault();
+
+                    mouse("mouseup", lastX, lastY, target);
+
+                    dragging = false;
+                    target = null;
+                }
+
+            }, { capture: true, passive: false });
+
+            document.addEventListener("touchcancel", function() {
+                if (dragging) {
+                    mouse("mouseup", lastX, lastY, target);
+                }
+
+                dragging = false;
+                target = null;
+            }, true);
+
+        })();
+    """.trimIndent()
+
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -36,17 +138,13 @@ class MainActivity : Activity() {
             allowFileAccess = false
             allowContentAccess = false
 
-            // Better scaling for the desktop TW2 game on a phone
             useWideViewPort = true
             loadWithOverviewMode = true
 
-            // Allow pinch-to-zoom
             builtInZoomControls = true
             displayZoomControls = false
             setSupportZoom(true)
 
-            // Keep desktop browser identity so TW2 does not
-            // redirect us to the Android app / Google Play.
             userAgentString =
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
                 "AppleWebKit/537.36 (KHTML, like Gecko) " +
@@ -92,16 +190,17 @@ class MainActivity : Activity() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
 
-                // Start slightly zoomed out so more of TW2 fits
-                // on the phone while still allowing pinch zoom.
                 if (url?.contains("tribalwars2.com") == true) {
-                    view?.setInitialScale(75)
+                    view?.setInitialScale(60)
+
+                    // Add touchscreen support for TW2's desktop map.
+                    view?.evaluateJavascript(touchMouseBridge, null)
                 }
             }
         }
 
         if (savedInstanceState == null) {
-            webView.setInitialScale(75)
+            webView.setInitialScale(60)
             webView.loadUrl("https://en.tribalwars2.com/")
         } else {
             webView.restoreState(savedInstanceState)
