@@ -51,9 +51,10 @@ class MainActivity : Activity() {
 
                 val url = request?.url?.toString() ?: return false
 
-                // Stop TW2 redirecting this WebView to its Android app.
+                // Block TW2 redirects to the Android app / Google Play.
                 if (url.startsWith("intent://") ||
-                    url.startsWith("market://")) {
+                    url.startsWith("market://") ||
+                    url.contains("play.google.com/store/apps/details")) {
                     return true
                 }
 
@@ -68,7 +69,8 @@ class MainActivity : Activity() {
 
                 if (url != null &&
                     (url.startsWith("intent://") ||
-                     url.startsWith("market://"))) {
+                     url.startsWith("market://") ||
+                     url.contains("play.google.com/store/apps/details"))) {
                     return true
                 }
 
