@@ -1,21 +1,70 @@
-
 package com.tw2intel.app
 
-import android.app.Activity
+import android.annotation.SuppressLint
 import android.os.Bundle
-import android.widget.TextView
+import android.webkit.CookieManager
+import android.webkit.WebChromeClient
+import android.webkit.WebSettings
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import androidx.activity.ComponentActivity
 
-class MainActivity : Activity() {
+class MainActivity : ComponentActivity() {
 
+    private lateinit var webView: WebView
+
+    @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val text = TextView(this).apply {
-            text = "TW2 Intel\n\nAndroid app is running successfully."
-            textSize = 22f
-            gravity = android.view.Gravity.CENTER
+        webView = WebView(this)
+        setContentView(webView)
+
+        CookieManager.getInstance().apply {
+            setAcceptCookie(true)
+            setAcceptThirdPartyCookies(webView, true)
         }
 
-        setContentView(text)
+        webView.settings.apply {
+            javaScriptEnabled = true
+            domStorageEnabled = true
+            databaseEnabled = true
+            cacheMode = WebSettings.LOAD_DEFAULT
+            mediaPlaybackRequiresUserGesture = false
+
+            allowFileAccess = false
+            allowContentAccess = false
+
+            useWideViewPort = true
+            loadWithOverviewMode = true
+        }
+
+        webView.webChromeClient = WebChromeClient()
+        webView.webViewClient = WebViewClient()
+
+        if (savedInstanceState == null) {
+            webView.loadUrl("https://en.tribalwars2.com/")
+        } else {
+            webView.restoreState(savedInstanceState)
+        }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        webView.saveState(outState)
+        super.onSaveInstanceState(outState)
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        if (webView.canGoBack()) {
+            webView.goBack()
+        } else {
+            super.onBackPressed()
+        }
+    }
+
+    override fun onDestroy() {
+        webView.destroy()
+        super.onDestroy()
     }
 }
