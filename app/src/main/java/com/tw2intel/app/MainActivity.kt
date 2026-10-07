@@ -2,7 +2,6 @@ package com.tw2intel.app
 
 import android.annotation.SuppressLint
 import android.app.Activity
-import android.content.res.Configuration
 import android.os.Bundle
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
@@ -14,18 +13,6 @@ import android.webkit.WebViewClient
 class MainActivity : Activity() {
 
     private lateinit var webView: WebView
-
-    /*
-     * TW2 desktop reference width.
-     */
-    private val tw2DesktopWidth = 2300f
-
-    /*
-     * Reserve some Android pixels on the right so TW2
-     * finishes before the navigation bar area.
-     */
-    private val rightReservedPixels = 110
-
 
     private val touchMouseBridge = """
         (function() {
@@ -44,9 +31,7 @@ class MainActivity : Activity() {
 
             const DRAG_THRESHOLD = 8;
 
-
             function isInsideWindow(element) {
-
                 if (!element) return false;
 
                 return !!element.closest(
@@ -61,7 +46,6 @@ class MainActivity : Activity() {
                     ].join(",")
                 );
             }
-
 
             function isMapArea(element) {
 
@@ -80,19 +64,13 @@ class MainActivity : Activity() {
                 }
 
                 const y = startY;
-                const screenHeight = window.innerHeight;
+                const h = window.innerHeight;
 
-                if (y < 100) {
-                    return false;
-                }
-
-                if (y > screenHeight - 120) {
-                    return false;
-                }
+                if (y < 100) return false;
+                if (y > h - 120) return false;
 
                 return true;
             }
-
 
             function mouse(type, x, y, element) {
 
@@ -103,7 +81,6 @@ class MainActivity : Activity() {
                 if (!element) return;
 
                 const event = new MouseEvent(type, {
-
                     bubbles: true,
                     cancelable: true,
                     view: window,
@@ -125,20 +102,13 @@ class MainActivity : Activity() {
                 element.dispatchEvent(event);
             }
 
-
             document.addEventListener(
                 "touchstart",
                 function(e) {
 
-                    /*
-                     * Leave two-finger gestures alone
-                     * so pinch zoom still works.
-                     */
                     if (e.touches.length !== 1) {
-
                         mapTouch = false;
                         dragging = false;
-
                         return;
                     }
 
@@ -157,47 +127,32 @@ class MainActivity : Activity() {
                         );
 
                     dragging = false;
-
-                    mapTouch =
-                        isMapArea(target);
+                    mapTouch = isMapArea(target);
                 },
                 true
             );
-
 
             document.addEventListener(
                 "touchmove",
                 function(e) {
 
-                    /*
-                     * Don't interfere with normal scrolling
-                     * when the touch didn't begin on the map.
-                     */
-                    if (!mapTouch) {
-                        return;
-                    }
+                    if (!mapTouch) return;
 
                     if (e.touches.length !== 1) {
-
                         mapTouch = false;
                         dragging = false;
-
                         return;
                     }
 
                     const t = e.touches[0];
 
-                    const dx =
-                        t.clientX - startX;
-
-                    const dy =
-                        t.clientY - startY;
+                    const dx = t.clientX - startX;
+                    const dy = t.clientY - startY;
 
                     if (
                         !dragging &&
-                        Math.sqrt(
-                            dx * dx + dy * dy
-                        ) > DRAG_THRESHOLD
+                        Math.sqrt(dx * dx + dy * dy) >
+                            DRAG_THRESHOLD
                     ) {
 
                         dragging = true;
@@ -231,15 +186,11 @@ class MainActivity : Activity() {
                 }
             );
 
-
             document.addEventListener(
                 "touchend",
                 function(e) {
 
-                    if (
-                        mapTouch &&
-                        dragging
-                    ) {
+                    if (mapTouch && dragging) {
 
                         e.preventDefault();
 
@@ -261,15 +212,11 @@ class MainActivity : Activity() {
                 }
             );
 
-
             document.addEventListener(
                 "touchcancel",
                 function() {
 
-                    if (
-                        mapTouch &&
-                        dragging
-                    ) {
+                    if (mapTouch && dragging) {
 
                         mouse(
                             "mouseup",
@@ -290,6 +237,52 @@ class MainActivity : Activity() {
     """.trimIndent()
 
 
+    /*
+     * This is the important new part.
+     *
+     * Instead of Android setInitialScale(), alter the
+     * browser viewport that TW2 sees.
+     */
+    private val viewportFix = """
+        (function() {
+
+            function applyTW2Viewport() {
+
+                var viewport =
+                    document.querySelector(
+                        'meta[name="viewport"]'
+                    );
+
+                if (!viewport) {
+
+                    viewport =
+                        document.createElement("meta");
+
+                    viewport.name = "viewport";
+
+                    document.head.appendChild(viewport);
+                }
+
+                viewport.setAttribute(
+                    "content",
+                    "width=1920, " +
+                    "initial-scale=1.0, " +
+                    "minimum-scale=0.1, " +
+                    "maximum-scale=5.0, " +
+                    "user-scalable=yes"
+                );
+            }
+
+            applyTW2Viewport();
+
+            setTimeout(applyTW2Viewport, 500);
+            setTimeout(applyTW2Viewport, 1500);
+            setTimeout(applyTW2Viewport, 3000);
+
+        })();
+    """.trimIndent()
+
+
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(
         savedInstanceState: Bundle?
@@ -298,6 +291,7 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
 
         webView = WebView(this)
+
         setContentView(webView)
 
 
@@ -328,18 +322,28 @@ class MainActivity : Activity() {
             allowContentAccess = false
 
 
+            /*
+             * Keep desktop page behaviour.
+             */
             useWideViewPort = true
+
+            /*
+             * THIS tells WebView to fit the 1920-wide
+             * viewport into the available phone width.
+             */
             loadWithOverviewMode = true
 
 
+            /*
+             * Keep manual pinch zoom available.
+             */
             builtInZoomControls = true
             displayZoomControls = false
             setSupportZoom(true)
 
 
             /*
-             * Keep the desktop UA. This is what allows
-             * the real browser version of TW2 to load.
+             * Keep the desktop UA that we know works.
              */
             userAgentString =
                 "Mozilla/5.0 " +
@@ -368,7 +372,6 @@ class MainActivity : Activity() {
                         request?.url?.toString()
                             ?: return false
 
-
                     if (
                         url.startsWith("intent://") ||
                         url.startsWith("market://") ||
@@ -376,10 +379,8 @@ class MainActivity : Activity() {
                             "play.google.com/store/apps/details"
                         )
                     ) {
-
                         return true
                     }
-
 
                     return false
                 }
@@ -401,10 +402,8 @@ class MainActivity : Activity() {
                             )
                         )
                     ) {
-
                         return true
                     }
-
 
                     return false
                 }
@@ -428,24 +427,21 @@ class MainActivity : Activity() {
                     ) {
 
                         /*
-                         * Keep the working touchscreen
-                         * map controls.
+                         * Install viewport first.
                          */
                         view?.evaluateJavascript(
-                            touchMouseBridge,
+                            viewportFix,
                             null
                         )
 
 
                         /*
-                         * Wait for TW2 to finish loading,
-                         * then fit it inside the usable area.
+                         * Keep the map dragging that we
+                         * already know works.
                          */
-                        view?.postDelayed(
-                            {
-                                fitTw2ToScreen()
-                            },
-                            1200
+                        view?.evaluateJavascript(
+                            touchMouseBridge,
+                            null
                         )
                     }
                 }
@@ -467,84 +463,11 @@ class MainActivity : Activity() {
     }
 
 
-    private fun fitTw2ToScreen() {
-
-        val fullWidth =
-            webView.width
-
-        if (fullWidth <= 0) {
-            return
-        }
-
-
-        /*
-         * Deliberately don't count the area occupied by
-         * Android's navigation controls as usable TW2 space.
-         */
-        val usableWidthPixels =
-            (fullWidth - rightReservedPixels)
-                .coerceAtLeast(1)
-
-
-        val density =
-            resources.displayMetrics.density
-
-
-        val availableWidth =
-            usableWidthPixels / density
-
-
-        var scale =
-            (
-                availableWidth /
-                tw2DesktopWidth *
-                100f
-            ).toInt()
-
-
-        /*
-         * Previous build stopped at 20%.
-         * Give this version a little more room to shrink
-         * if that's what this particular screen requires.
-         */
-        scale =
-            scale.coerceIn(
-                16,
-                100
-            )
-
-
-        webView.setInitialScale(
-            scale
-        )
-    }
-
-
-    override fun onConfigurationChanged(
-        newConfig: Configuration
-    ) {
-
-        super.onConfigurationChanged(
-            newConfig
-        )
-
-
-        webView.postDelayed(
-            {
-                fitTw2ToScreen()
-            },
-            400
-        )
-    }
-
-
     override fun onSaveInstanceState(
         outState: Bundle
     ) {
 
-        webView.saveState(
-            outState
-        )
+        webView.saveState(outState)
 
         super.onSaveInstanceState(
             outState
