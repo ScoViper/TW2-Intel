@@ -3,7 +3,11 @@ package com.tw2intel.app
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.res.Configuration
+import android.os.Build
 import android.os.Bundle
+import android.view.View
+import android.view.WindowInsets
+import android.view.WindowInsetsController
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -16,11 +20,12 @@ class MainActivity : Activity() {
     private lateinit var webView: WebView
 
     /*
-     * Give TW2 a little more desktop width so the
-     * complete interface, including the right controls,
-     * fits inside the phone screen.
+     * TW2's desktop interface needs a wide virtual screen.
+     * 2300 gives us enough room for the complete right-hand
+     * interface instead of cutting the last section off.
      */
-    private val tw2DesktopWidth = 2150f
+    private val tw2DesktopWidth = 2300f
+
 
     private val touchMouseBridge = """
         (function() {
@@ -39,6 +44,7 @@ class MainActivity : Activity() {
 
             const DRAG_THRESHOLD = 8;
 
+
             function isInsideWindow(element) {
 
                 if (!element) return false;
@@ -55,6 +61,7 @@ class MainActivity : Activity() {
                     ].join(",")
                 );
             }
+
 
             function isMapArea(element) {
 
@@ -73,18 +80,19 @@ class MainActivity : Activity() {
                 }
 
                 const y = startY;
-                const screenHeight = window.innerHeight;
+                const h = window.innerHeight;
 
                 if (y < 100) {
                     return false;
                 }
 
-                if (y > screenHeight - 120) {
+                if (y > h - 120) {
                     return false;
                 }
 
                 return true;
             }
+
 
             function mouse(type, x, y, element) {
 
@@ -116,6 +124,7 @@ class MainActivity : Activity() {
 
                 element.dispatchEvent(event);
             }
+
 
             document.addEventListener(
                 "touchstart",
@@ -151,13 +160,14 @@ class MainActivity : Activity() {
                 true
             );
 
+
             document.addEventListener(
                 "touchmove",
                 function(e) {
 
                     /*
-                     * Don't interfere with normal scrolling
-                     * inside TW2 windows and menus.
+                     * Anything that isn't the map keeps its
+                     * normal browser touch/scroll behaviour.
                      */
                     if (!mapTouch) {
                         return;
@@ -210,12 +220,14 @@ class MainActivity : Activity() {
                             target
                         );
                     }
+
                 },
                 {
                     capture: true,
                     passive: false
                 }
             );
+
 
             document.addEventListener(
                 "touchend",
@@ -239,12 +251,14 @@ class MainActivity : Activity() {
                     dragging = false;
                     mapTouch = false;
                     target = null;
+
                 },
                 {
                     capture: true,
                     passive: false
                 }
             );
+
 
             document.addEventListener(
                 "touchcancel",
@@ -281,8 +295,16 @@ class MainActivity : Activity() {
 
         super.onCreate(savedInstanceState)
 
+        /*
+         * FIRST: give the game the entire display.
+         */
+        enableImmersiveMode()
+
+
         webView = WebView(this)
+
         setContentView(webView)
+
 
         CookieManager.getInstance().apply {
 
@@ -293,6 +315,7 @@ class MainActivity : Activity() {
                 true
             )
         }
+
 
         webView.settings.apply {
 
@@ -309,13 +332,26 @@ class MainActivity : Activity() {
             allowFileAccess = false
             allowContentAccess = false
 
+
+            /*
+             * Desktop TW2 layout.
+             */
             useWideViewPort = true
             loadWithOverviewMode = true
 
+
+            /*
+             * Pinch zoom remains available.
+             */
             builtInZoomControls = true
             displayZoomControls = false
             setSupportZoom(true)
 
+
+            /*
+             * Desktop UA stops TW2 redirecting us
+             * to the Play Store.
+             */
             userAgentString =
                 "Mozilla/5.0 " +
                 "(Windows NT 10.0; Win64; x64) " +
@@ -325,11 +361,14 @@ class MainActivity : Activity() {
                 "Safari/537.36"
         }
 
+
         webView.webChromeClient =
             WebChromeClient()
 
+
         webView.webViewClient =
             object : WebViewClient() {
+
 
                 override fun shouldOverrideUrlLoading(
                     view: WebView?,
@@ -347,11 +386,13 @@ class MainActivity : Activity() {
                             "play.google.com/store/apps/details"
                         )
                     ) {
+
                         return true
                     }
 
                     return false
                 }
+
 
                 @Deprecated("Deprecated in Java")
                 override fun shouldOverrideUrlLoading(
@@ -369,11 +410,13 @@ class MainActivity : Activity() {
                             )
                         )
                     ) {
+
                         return true
                     }
 
                     return false
                 }
+
 
                 override fun onPageFinished(
                     view: WebView?,
@@ -391,11 +434,19 @@ class MainActivity : Activity() {
                         ) == true
                     ) {
 
+                        /*
+                         * Keep our working touchscreen map.
+                         */
                         view?.evaluateJavascript(
                             touchMouseBridge,
                             null
                         )
 
+
+                        /*
+                         * Wait until both Android and TW2
+                         * have finished laying out the screen.
+                         */
                         view?.postDelayed(
                             {
                                 fitTw2ToScreen()
@@ -405,6 +456,7 @@ class MainActivity : Activity() {
                     }
                 }
             }
+
 
         if (savedInstanceState == null) {
 
@@ -421,6 +473,45 @@ class MainActivity : Activity() {
     }
 
 
+    /*
+     * TRUE ANDROID IMMERSIVE MODE
+     *
+     * This removes the white Android navigation area
+     * that was covering the right side of TW2.
+     */
+    private fun enableImmersiveMode() {
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+
+            window.setDecorFitsSystemWindows(false)
+
+            window.insetsController?.let {
+
+                it.hide(
+                    WindowInsets.Type.statusBars() or
+                    WindowInsets.Type.navigationBars()
+                )
+
+                it.systemBarsBehavior =
+                    WindowInsetsController
+                        .BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            }
+
+        } else {
+
+            @Suppress("DEPRECATION")
+
+            window.decorView.systemUiVisibility =
+                View.SYSTEM_UI_FLAG_FULLSCREEN or
+                View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
+                View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+                View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
+                View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+        }
+    }
+
+
     private fun fitTw2ToScreen() {
 
         val widthPixels =
@@ -430,11 +521,14 @@ class MainActivity : Activity() {
             return
         }
 
+
         val density =
             resources.displayMetrics.density
 
+
         val availableWidth =
             widthPixels / density
+
 
         var scale =
             (
@@ -443,16 +537,16 @@ class MainActivity : Activity() {
                 100f
             ).toInt()
 
+
         /*
-         * Previously this stopped at 25%.
-         * Allow it down to 20% so the right edge
-         * can fit completely on the phone.
+         * Give TW2 enough freedom to fit completely.
          */
         scale =
             scale.coerceIn(
-                20,
+                18,
                 100
             )
+
 
         webView.setInitialScale(
             scale
@@ -468,12 +562,44 @@ class MainActivity : Activity() {
             newConfig
         )
 
+
+        enableImmersiveMode()
+
+
         webView.postDelayed(
             {
                 fitTw2ToScreen()
             },
-            400
+            500
         )
+    }
+
+
+    /*
+     * Android can reveal its navigation controls after
+     * certain interactions. Hide them again when the
+     * game regains focus.
+     */
+    override fun onWindowFocusChanged(
+        hasFocus: Boolean
+    ) {
+
+        super.onWindowFocusChanged(
+            hasFocus
+        )
+
+        if (hasFocus) {
+
+            enableImmersiveMode()
+        }
+    }
+
+
+    override fun onResume() {
+
+        super.onResume()
+
+        enableImmersiveMode()
     }
 
 
