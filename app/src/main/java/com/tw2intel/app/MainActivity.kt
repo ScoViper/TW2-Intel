@@ -94,9 +94,7 @@ class MainActivity : Activity() {
                     button: 0,
 
                     buttons:
-                        type === "mouseup"
-                            ? 0
-                            : 1
+                        type === "mouseup" ? 0 : 1
                 });
 
                 element.dispatchEvent(event);
@@ -120,11 +118,10 @@ class MainActivity : Activity() {
                     lastX = startX;
                     lastY = startY;
 
-                    target =
-                        document.elementFromPoint(
-                            startX,
-                            startY
-                        );
+                    target = document.elementFromPoint(
+                        startX,
+                        startY
+                    );
 
                     dragging = false;
                     mapTouch = isMapArea(target);
@@ -152,7 +149,7 @@ class MainActivity : Activity() {
                     if (
                         !dragging &&
                         Math.sqrt(dx * dx + dy * dy) >
-                            DRAG_THRESHOLD
+                        DRAG_THRESHOLD
                     ) {
 
                         dragging = true;
@@ -245,10 +242,17 @@ class MainActivity : Activity() {
         webView = WebView(this)
         setContentView(webView)
 
+
         CookieManager.getInstance().apply {
+
             setAcceptCookie(true)
-            setAcceptThirdPartyCookies(webView, true)
+
+            setAcceptThirdPartyCookies(
+                webView,
+                true
+            )
         }
+
 
         webView.settings.apply {
 
@@ -263,22 +267,25 @@ class MainActivity : Activity() {
             allowFileAccess = false
             allowContentAccess = false
 
+
             /*
-             * Let WebView calculate the desktop page width.
+             * Desktop layout.
              */
             useWideViewPort = true
             loadWithOverviewMode = true
 
+
             /*
-             * Keep manual pinch zoom available.
+             * Keep normal pinch zoom working.
              */
             builtInZoomControls = true
             displayZoomControls = false
             setSupportZoom(true)
 
+
             /*
-             * Desktop browser UA prevents TW2
-             * redirecting to Google Play.
+             * Desktop Chrome user agent.
+             * This stops TW2 sending us to Google Play.
              */
             userAgentString =
                 "Mozilla/5.0 " +
@@ -289,10 +296,13 @@ class MainActivity : Activity() {
                 "Safari/537.36"
         }
 
+
         webView.webChromeClient = WebChromeClient()
+
 
         webView.webViewClient =
             object : WebViewClient() {
+
 
                 override fun shouldOverrideUrlLoading(
                     view: WebView?,
@@ -345,7 +355,10 @@ class MainActivity : Activity() {
                     url: String?
                 ) {
 
-                    super.onPageFinished(view, url)
+                    super.onPageFinished(
+                        view,
+                        url
+                    )
 
                     if (
                         url?.contains(
@@ -354,7 +367,7 @@ class MainActivity : Activity() {
                     ) {
 
                         /*
-                         * Keep the working touchscreen
+                         * Keep our working touchscreen
                          * map dragging.
                          */
                         view?.evaluateJavascript(
@@ -362,25 +375,25 @@ class MainActivity : Activity() {
                             null
                         )
 
+
                         /*
-                         * Allow TW2 to finish drawing,
-                         * then zoom the actual WebView out.
-                         *
-                         * This is different from changing
-                         * the HTML viewport.
+                         * TW2 is a JavaScript application,
+                         * so give the game time to appear
+                         * before applying WebView zoom-out.
                          */
                         view?.postDelayed({
 
                             /*
-                             * 60% is our first target.
-                             *
-                             * This should put us much closer
-                             * to the manually zoomed-out
-                             * screenshot.
+                             * These are real WebView
+                             * zoom-out steps — equivalent
+                             * to moving the WebView toward
+                             * its zoomed-out state.
                              */
-                            view.setInitialScale(60)
+                            repeat(5) {
+                                view.zoomOut()
+                            }
 
-                        }, 1500)
+                        }, 3000)
                     }
                 }
             }
@@ -407,7 +420,9 @@ class MainActivity : Activity() {
 
         webView.saveState(outState)
 
-        super.onSaveInstanceState(outState)
+        super.onSaveInstanceState(
+            outState
+        )
     }
 
 
