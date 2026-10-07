@@ -21,19 +21,6 @@ class MainActivity : Activity() {
         webView = WebView(this)
         setContentView(webView)
 
-        CookieManager.getInstance().setAcceptCookie(true)
-        CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
-
-        webView.settings.apply {
-            javaScriptEnabled = true
-            domStorageEnabled = true
-            databaseEnabled = true
-            cacheMode = WebSettings.LOAD_DEFAULT
-            mediaPlaybackRequiresUserGesture = false
-            userAgentString = userAgentString.replace("; wv", "")
-        }
-        webView.webChromeClient = WebChromeClient()
-        webView.webViewClient = WebViewClient()
 
 
         if (savedInstanceState == null) {
