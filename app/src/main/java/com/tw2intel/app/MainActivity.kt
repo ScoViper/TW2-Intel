@@ -238,10 +238,11 @@ class MainActivity : Activity() {
 
 
     /*
-     * This is the important new part.
+     * TW2 viewport.
      *
-     * Instead of Android setInitialScale(), alter the
-     * browser viewport that TW2 sees.
+     * Starting scale is now 0.5 so the game starts
+     * zoomed further out instead of requiring you
+     * to pinch it out manually every time.
      */
     private val viewportFix = """
         (function() {
@@ -266,7 +267,7 @@ class MainActivity : Activity() {
                 viewport.setAttribute(
                     "content",
                     "width=1920, " +
-                    "initial-scale=1.0, " +
+                    "initial-scale=0.5, " +
                     "minimum-scale=0.1, " +
                     "maximum-scale=5.0, " +
                     "user-scalable=yes"
@@ -323,19 +324,14 @@ class MainActivity : Activity() {
 
 
             /*
-             * Keep desktop page behaviour.
+             * Desktop page behaviour.
              */
             useWideViewPort = true
-
-            /*
-             * THIS tells WebView to fit the 1920-wide
-             * viewport into the available phone width.
-             */
             loadWithOverviewMode = true
 
 
             /*
-             * Keep manual pinch zoom available.
+             * Keep pinch zoom enabled.
              */
             builtInZoomControls = true
             displayZoomControls = false
@@ -343,7 +339,8 @@ class MainActivity : Activity() {
 
 
             /*
-             * Keep the desktop UA that we know works.
+             * Desktop user agent prevents TW2
+             * redirecting to Google Play.
              */
             userAgentString =
                 "Mozilla/5.0 " +
@@ -427,7 +424,7 @@ class MainActivity : Activity() {
                     ) {
 
                         /*
-                         * Install viewport first.
+                         * Apply TW2 viewport.
                          */
                         view?.evaluateJavascript(
                             viewportFix,
@@ -436,8 +433,8 @@ class MainActivity : Activity() {
 
 
                         /*
-                         * Keep the map dragging that we
-                         * already know works.
+                         * Keep our working touchscreen
+                         * map dragging.
                          */
                         view?.evaluateJavascript(
                             touchMouseBridge,
