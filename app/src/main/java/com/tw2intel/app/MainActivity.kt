@@ -16,6 +16,7 @@ class MainActivity : Activity() {
 
     private val touchMouseBridge = """
         (function() {
+
             if (window.__tw2TouchMouseInstalled) return;
             window.__tw2TouchMouseInstalled = true;
 
@@ -23,151 +24,306 @@ class MainActivity : Activity() {
             let startY = 0;
             let lastX = 0;
             let lastY = 0;
+
             let dragging = false;
+            let mapTouch = false;
             let target = null;
 
             const DRAG_THRESHOLD = 8;
 
+
+            function isInsideWindow(element) {
+
+                if (!element) return false;
+
+                /*
+                 * TW2 windows, dialogs and overlays usually
+                 * contain one or more of these elements.
+                 *
+                 * If we find one, DO NOT convert the touch
+                 * into mouse dragging. This allows normal
+                 * finger scrolling inside Overview etc.
+                 */
+
+                return !!element.closest(
+                    [
+                        ".window",
+                        ".popup",
+                        ".modal",
+                        ".dialog",
+                        ".overview",
+                        ".content-border",
+                        "[role='dialog']"
+                    ].join(",")
+                );
+            }
+
+
+            function isMapArea(element) {
+
+                if (!element) return false;
+
+                /*
+                 * Never steal touches from buttons,
+                 * links, inputs or TW2 windows.
+                 */
+
+                if (
+                    element.closest(
+                        "button, a, input, select, textarea"
+                    )
+                ) {
+                    return false;
+                }
+
+                if (isInsideWindow(element)) {
+                    return false;
+                }
+
+
+                /*
+                 * TW2's actual game/map occupies the large
+                 * central portion of the screen.
+                 *
+                 * Avoid the top resource bar and the
+                 * bottom navigation bar.
+                 */
+
+                const y = startY;
+                const screenHeight = window.innerHeight;
+
+                if (y < 100) {
+                    return false;
+                }
+
+                if (y > screenHeight - 120) {
+                    return false;
+                }
+
+                return true;
+            }
+
+
             function mouse(type, x, y, element) {
 
                 if (!element) {
-                    element = document.elementFromPoint(x, y);
+                    element =
+                        document.elementFromPoint(x, y);
                 }
 
                 if (!element) return;
 
-                const event = new MouseEvent(type, {
-                    bubbles: true,
-                    cancelable: true,
-                    view: window,
-                    clientX: x,
-                    clientY: y,
-                    screenX: x,
-                    screenY: y,
-                    button: 0,
-                    buttons: type === "mouseup" ? 0 : 1
-                });
+
+                const event =
+                    new MouseEvent(type, {
+
+                        bubbles: true,
+                        cancelable: true,
+                        view: window,
+
+                        clientX: x,
+                        clientY: y,
+
+                        screenX: x,
+                        screenY: y,
+
+                        button: 0,
+
+                        buttons:
+                            type === "mouseup"
+                                ? 0
+                                : 1
+                    });
+
 
                 element.dispatchEvent(event);
             }
 
-            document.addEventListener("touchstart", function(e) {
 
-                if (e.touches.length !== 1) return;
+            document.addEventListener(
+                "touchstart",
+                function(e) {
 
-                const t = e.touches[0];
+                    /*
+                     * Two fingers are left completely alone
+                     * so WebView pinch zoom still works.
+                     */
 
-                startX = t.clientX;
-                startY = t.clientY;
+                    if (e.touches.length !== 1) {
 
-                lastX = startX;
-                lastY = startY;
+                        mapTouch = false;
+                        dragging = false;
 
-                dragging = false;
-
-                target = document.elementFromPoint(
-                    startX,
-                    startY
-                );
-
-            }, true);
+                        return;
+                    }
 
 
-            document.addEventListener("touchmove", function(e) {
+                    const t = e.touches[0];
 
-                if (e.touches.length !== 1) return;
+                    startX = t.clientX;
+                    startY = t.clientY;
 
-                const t = e.touches[0];
+                    lastX = startX;
+                    lastY = startY;
 
-                const dx = t.clientX - startX;
-                const dy = t.clientY - startY;
 
-                if (
-                    !dragging &&
-                    Math.sqrt(dx * dx + dy * dy) > DRAG_THRESHOLD
-                ) {
+                    target =
+                        document.elementFromPoint(
+                            startX,
+                            startY
+                        );
 
-                    dragging = true;
 
-                    mouse(
-                        "mousedown",
-                        startX,
-                        startY,
-                        target
-                    );
+                    dragging = false;
+
+                    mapTouch =
+                        isMapArea(target);
+                },
+                true
+            );
+
+
+            document.addEventListener(
+                "touchmove",
+                function(e) {
+
+                    /*
+                     * IMPORTANT:
+                     *
+                     * If this touch didn't start on the map,
+                     * don't interfere with it.
+                     *
+                     * This lets Overview and other windows
+                     * scroll normally.
+                     */
+
+                    if (!mapTouch) {
+                        return;
+                    }
+
+
+                    if (e.touches.length !== 1) {
+
+                        mapTouch = false;
+                        dragging = false;
+
+                        return;
+                    }
+
+
+                    const t = e.touches[0];
+
+                    const dx =
+                        t.clientX - startX;
+
+                    const dy =
+                        t.clientY - startY;
+
+
+                    if (
+                        !dragging &&
+                        Math.sqrt(
+                            dx * dx + dy * dy
+                        ) > DRAG_THRESHOLD
+                    ) {
+
+                        dragging = true;
+
+                        mouse(
+                            "mousedown",
+                            startX,
+                            startY,
+                            target
+                        );
+                    }
+
+
+                    if (dragging) {
+
+                        e.preventDefault();
+
+                        lastX = t.clientX;
+                        lastY = t.clientY;
+
+
+                        mouse(
+                            "mousemove",
+                            lastX,
+                            lastY,
+                            target
+                        );
+                    }
+
+                },
+                {
+                    capture: true,
+                    passive: false
                 }
+            );
 
-                if (dragging) {
 
-                    e.preventDefault();
+            document.addEventListener(
+                "touchend",
+                function(e) {
 
-                    lastX = t.clientX;
-                    lastY = t.clientY;
+                    if (
+                        mapTouch &&
+                        dragging
+                    ) {
 
-                    mouse(
-                        "mousemove",
-                        lastX,
-                        lastY,
-                        target
-                    );
+                        e.preventDefault();
+
+
+                        mouse(
+                            "mouseup",
+                            lastX,
+                            lastY,
+                            target
+                        );
+                    }
+
+
+                    dragging = false;
+                    mapTouch = false;
+                    target = null;
+
+                },
+                {
+                    capture: true,
+                    passive: false
                 }
-
-            }, {
-                capture: true,
-                passive: false
-            });
+            );
 
 
-            document.addEventListener("touchend", function(e) {
+            document.addEventListener(
+                "touchcancel",
+                function() {
 
-                if (dragging) {
+                    if (
+                        mapTouch &&
+                        dragging
+                    ) {
 
-                    e.preventDefault();
-
-                    mouse(
-                        "mouseup",
-                        lastX,
-                        lastY,
-                        target
-                    );
-                }
-
-                dragging = false;
-                target = null;
-
-            }, {
-                capture: true,
-                passive: false
-            });
+                        mouse(
+                            "mouseup",
+                            lastX,
+                            lastY,
+                            target
+                        );
+                    }
 
 
-            document.addEventListener("touchcancel", function() {
-
-                if (dragging) {
-
-                    mouse(
-                        "mouseup",
-                        lastX,
-                        lastY,
-                        target
-                    );
-                }
-
-                dragging = false;
-                target = null;
-
-            }, true);
+                    dragging = false;
+                    mapTouch = false;
+                    target = null;
+                },
+                true
+            );
 
         })();
     """.trimIndent()
 
 
-    /*
-     * TW2 uses a desktop-sized page.
-     *
-     * This changes the viewport so WebView scales the
-     * desktop game to the actual width of the phone.
-     */
     private val viewportFix = """
         (function() {
 
@@ -178,6 +334,7 @@ class MainActivity : Activity() {
                         'meta[name="viewport"]'
                     );
 
+
                 if (!viewport) {
 
                     viewport =
@@ -185,8 +342,11 @@ class MainActivity : Activity() {
 
                     viewport.name = "viewport";
 
-                    document.head.appendChild(viewport);
+                    document.head.appendChild(
+                        viewport
+                    );
                 }
+
 
                 viewport.setAttribute(
                     "content",
@@ -197,27 +357,43 @@ class MainActivity : Activity() {
                     "user-scalable=yes"
                 );
 
-                document.documentElement.style.maxWidth = "100vw";
-                document.documentElement.style.overflowX = "hidden";
 
-                document.body.style.maxWidth = "100vw";
-                document.body.style.overflowX = "hidden";
+                document.documentElement.style.maxWidth =
+                    "100vw";
+
+                document.body.style.maxWidth =
+                    "100vw";
             }
+
 
             fixViewport();
 
-            setTimeout(fixViewport, 500);
-            setTimeout(fixViewport, 1500);
-            setTimeout(fixViewport, 3000);
+            setTimeout(
+                fixViewport,
+                500
+            );
+
+            setTimeout(
+                fixViewport,
+                1500
+            );
+
+            setTimeout(
+                fixViewport,
+                3000
+            );
 
         })();
     """.trimIndent()
 
 
     @SuppressLint("SetJavaScriptEnabled")
-    override fun onCreate(savedInstanceState: Bundle?) {
+    override fun onCreate(
+        savedInstanceState: Bundle?
+    ) {
 
         super.onCreate(savedInstanceState)
+
 
         webView = WebView(this)
 
@@ -243,8 +419,10 @@ class MainActivity : Activity() {
 
             databaseEnabled = true
 
+
             cacheMode =
                 WebSettings.LOAD_DEFAULT
+
 
             mediaPlaybackRequiresUserGesture =
                 false
@@ -255,17 +433,14 @@ class MainActivity : Activity() {
             allowContentAccess = false
 
 
-            /*
-             * Important:
-             *
-             * TW2 still thinks this is a desktop browser,
-             * but WebView is allowed to fit that desktop
-             * page into the available phone width.
-             */
             useWideViewPort = true
 
             loadWithOverviewMode = true
 
+
+            /*
+             * Keep pinch zoom available.
+             */
 
             builtInZoomControls = true
 
@@ -273,6 +448,11 @@ class MainActivity : Activity() {
 
             setSupportZoom(true)
 
+
+            /*
+             * Desktop UA is still required to prevent
+             * TW2 redirecting to the Android app.
+             */
 
             userAgentString =
                 "Mozilla/5.0 " +
@@ -298,13 +478,19 @@ class MainActivity : Activity() {
                 ): Boolean {
 
                     val url =
-                        request?.url?.toString()
+                        request
+                            ?.url
+                            ?.toString()
                             ?: return false
 
 
                     if (
-                        url.startsWith("intent://") ||
-                        url.startsWith("market://") ||
+                        url.startsWith(
+                            "intent://"
+                        ) ||
+                        url.startsWith(
+                            "market://"
+                        ) ||
                         url.contains(
                             "play.google.com/store/apps/details"
                         )
@@ -318,7 +504,9 @@ class MainActivity : Activity() {
                 }
 
 
-                @Deprecated("Deprecated in Java")
+                @Deprecated(
+                    "Deprecated in Java"
+                )
                 override fun shouldOverrideUrlLoading(
                     view: WebView?,
                     url: String?
@@ -327,8 +515,12 @@ class MainActivity : Activity() {
                     if (
                         url != null &&
                         (
-                            url.startsWith("intent://") ||
-                            url.startsWith("market://") ||
+                            url.startsWith(
+                                "intent://"
+                            ) ||
+                            url.startsWith(
+                                "market://"
+                            ) ||
                             url.contains(
                                 "play.google.com/store/apps/details"
                             )
@@ -360,19 +552,12 @@ class MainActivity : Activity() {
                         ) == true
                     ) {
 
-                        /*
-                         * First fix the desktop viewport.
-                         */
                         view?.evaluateJavascript(
                             viewportFix,
                             null
                         )
 
 
-                        /*
-                         * Then install our working
-                         * touchscreen -> mouse bridge.
-                         */
                         view?.evaluateJavascript(
                             touchMouseBridge,
                             null
@@ -382,7 +567,9 @@ class MainActivity : Activity() {
             }
 
 
-        if (savedInstanceState == null) {
+        if (
+            savedInstanceState == null
+        ) {
 
             webView.loadUrl(
                 "https://en.tribalwars2.com/"
@@ -411,10 +598,14 @@ class MainActivity : Activity() {
     }
 
 
-    @Deprecated("Deprecated in Java")
+    @Deprecated(
+        "Deprecated in Java"
+    )
     override fun onBackPressed() {
 
-        if (webView.canGoBack()) {
+        if (
+            webView.canGoBack()
+        ) {
 
             webView.goBack()
 
