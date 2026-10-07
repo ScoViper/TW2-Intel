@@ -496,10 +496,7 @@ function learnRequest(msg) {
             S.currentVillageId =
                 data.village_id;
         }
-    }
-
-
-    if (
+    }    if (
         msg.type ===
             'Overview/getIncoming'
         &&
@@ -1620,9 +1617,7 @@ function rating(train) {
         gap <= 3
     ) {
         return '🔴 STRONG';
-    }
-
-    return '🟠 LIKELY';
+    }    return '🟠 LIKELY';
 }
 
 
@@ -2172,7 +2167,10 @@ function patchSession(value) {
     }
 
     return result;
-}/* ============================================================
+}
+
+
+/* ============================================================
    RESOURCE JOB LOOKUP
    ============================================================ */
 
@@ -2469,8 +2467,7 @@ async function startBestResourceJob() {
                         job.amount || 0
                     ),
 
-                resource:
-                    job.resource_type ||
+                resource:                    job.resource_type ||
                     '',
 
                 duration:
@@ -2965,6 +2962,403 @@ function toggleResourceAuto() {
 
 /* ============================================================
    MAIN DASHBOARD
+   ============================================================ *//* ============================================================
+   PANEL UI STATE
+   ============================================================ */
+
+const PANEL_UI = {
+    intelClosed:false,
+    attacksClosed:false,
+
+    intelPosition:
+        loadJSON(
+            'tw2Intel.intelPanelPosition',
+            null
+        ),
+
+    attacksPosition:
+        loadJSON(
+            'tw2Intel.attackPanelPosition',
+            null
+        )
+};
+
+
+/* ============================================================
+   PANEL DRAGGING
+   ============================================================ */
+
+function installPanelDragging(
+    panel,
+    positionName,
+    storageKey
+) {
+
+    if (
+        !panel ||
+        panel.dataset.tw2DragInstalled === '1'
+    ) {
+        return;
+    }
+
+    panel.dataset.tw2DragInstalled = '1';
+
+    let dragging = false;
+    let pointerId = null;
+    let offsetX = 0;
+    let offsetY = 0;
+
+
+    panel.addEventListener(
+        'pointerdown',
+        event => {
+
+            const handle =
+                event.target.closest(
+                    '[data-tw2-drag-handle]'
+                );
+
+            if (
+                !handle ||
+                event.target.closest('button')
+            ) {
+                return;
+            }
+
+            const rect =
+                panel.getBoundingClientRect();
+
+            panel.style.left =
+                rect.left + 'px';
+
+            panel.style.top =
+                rect.top + 'px';
+
+            panel.style.right =
+                'auto';
+
+            dragging = true;
+            pointerId = event.pointerId;
+
+            offsetX =
+                event.clientX -
+                rect.left;
+
+            offsetY =
+                event.clientY -
+                rect.top;
+
+            try {
+                panel.setPointerCapture(
+                    pointerId
+                );
+            } catch(e) {}
+
+            event.preventDefault();
+            event.stopPropagation();
+        },
+        true
+    );
+
+
+    panel.addEventListener(
+        'pointermove',
+        event => {
+
+            if (
+                !dragging ||
+                event.pointerId !== pointerId
+            ) {
+                return;
+            }
+
+            const rect =
+                panel.getBoundingClientRect();
+
+            let left =
+                event.clientX -
+                offsetX;
+
+            let top =
+                event.clientY -
+                offsetY;
+
+            left =
+                Math.max(
+                    0,
+                    Math.min(
+                        left,
+                        window.innerWidth -
+                        Math.min(
+                            rect.width,
+                            80
+                        )
+                    )
+                );
+
+            top =
+                Math.max(
+                    0,
+                    Math.min(
+                        top,
+                        window.innerHeight -
+                        40
+                    )
+                );
+
+            panel.style.left =
+                left + 'px';
+
+            panel.style.top =
+                top + 'px';
+
+            panel.style.right =
+                'auto';
+
+            event.preventDefault();
+            event.stopPropagation();
+        },
+        true
+    );
+
+
+    function stopDragging(event) {
+
+        if (!dragging)
+            return;
+
+        if (
+            event &&
+            event.pointerId !== pointerId
+        ) {
+            return;
+        }
+
+        dragging = false;
+
+        try {
+            panel.releasePointerCapture(
+                pointerId
+            );
+        } catch(e) {}
+
+        pointerId = null;
+
+        const rect =
+            panel.getBoundingClientRect();
+
+        const position = {
+            left:
+                Math.round(rect.left),
+
+            top:
+                Math.round(rect.top)
+        };
+
+        PANEL_UI[positionName] =
+            position;
+
+        saveJSON(
+            storageKey,
+            position
+        );
+
+        if (event) {
+            event.preventDefault();
+            event.stopPropagation();
+        }
+    }
+
+
+    panel.addEventListener(
+        'pointerup',
+        stopDragging,
+        true
+    );
+
+    panel.addEventListener(
+        'pointercancel',
+        stopDragging,
+        true
+    );
+}
+
+
+function applyPanelPosition(
+    panel,
+    position
+) {
+
+    if (
+        !panel ||
+        !position
+    ) {
+        return;
+    }
+
+    panel.style.left =
+        Math.max(
+            0,
+            Number(position.left) || 0
+        ) + 'px';
+
+    panel.style.top =
+        Math.max(
+            0,
+            Number(position.top) || 0
+        ) + 'px';
+
+    panel.style.right =
+        'auto';
+}
+
+
+/* ============================================================
+   PERMANENT REOPEN BUTTONS
+   ============================================================ */
+
+function getPanelLauncher() {
+
+    let launcher =
+        document.getElementById(
+            'tw2-panel-launcher'
+        );
+
+    if (launcher)
+        return launcher;
+
+    launcher =
+        document.createElement(
+            'div'
+        );
+
+    launcher.id =
+        'tw2-panel-launcher';
+
+    launcher.setAttribute(
+        'role',
+        'dialog'
+    );
+
+    Object.assign(
+        launcher.style,
+        {
+            position:'fixed',
+            right:'12px',
+            bottom:'12px',
+            zIndex:'2147483647',
+            display:'flex',
+            gap:'5px',
+            padding:'5px',
+
+            background:
+                'rgba(18,18,18,.95)',
+
+            border:
+                '1px solid #777',
+
+            borderRadius:'7px',
+
+            boxShadow:
+                '0 3px 14px rgba(0,0,0,.6)',
+
+            font:
+                '12px Arial,sans-serif'
+        }
+    );
+
+    launcher.innerHTML = `
+        <button
+            id="tw2-launch-intel"
+            type="button"
+            style="
+                padding:7px 9px;
+                border:1px solid #667;
+                border-radius:5px;
+                background:#26343b;
+                color:white;
+                font-weight:bold;
+                cursor:pointer;
+            "
+        >
+            ⚔ Intel
+        </button>
+
+        <button
+            id="tw2-launch-attacks"
+            type="button"
+            style="
+                padding:7px 9px;
+                border:1px solid #855;
+                border-radius:5px;
+                background:#482828;
+                color:white;
+                font-weight:bold;
+                cursor:pointer;
+            "
+        >
+            🚨 Attacks
+        </button>
+    `;
+
+
+    launcher.addEventListener(
+        'pointerdown',
+        event => {
+
+            event.stopPropagation();
+
+        },
+        true
+    );
+
+
+    launcher.addEventListener(
+        'click',
+        event => {
+
+            if (
+                event.target.closest(
+                    '#tw2-launch-intel'
+                )
+            ) {
+
+                PANEL_UI.intelClosed =
+                    !PANEL_UI.intelClosed;
+
+                render();
+            }
+
+
+            if (
+                event.target.closest(
+                    '#tw2-launch-attacks'
+                )
+            ) {
+
+                PANEL_UI.attacksClosed =
+                    !PANEL_UI.attacksClosed;
+
+                render();
+            }
+
+            event.stopPropagation();
+        },
+        true
+    );
+
+
+    document.documentElement
+        .appendChild(
+            launcher
+        );
+
+    return launcher;
+}
+
+
+/* ============================================================
+   MAIN DASHBOARD
    ============================================================ */
 
 function getPanel() {
@@ -2974,14 +3368,25 @@ function getPanel() {
             'tw2-intel-dashboard'
         );
 
-    if (panel)
+    if (panel) {
+
+        panel.style.display =
+            PANEL_UI.intelClosed
+                ?
+                'none'
+                :
+                'block';
+
         return panel;
+    }
+
 
     if (
         !document.documentElement
     ) {
         return null;
     }
+
 
     panel =
         document.createElement(
@@ -2990,6 +3395,19 @@ function getPanel() {
 
     panel.id =
         'tw2-intel-dashboard';
+
+
+    /*
+       Important for Android WebView:
+       identifies this as UI rather than the
+       underlying TW2 map surface.
+    */
+
+    panel.setAttribute(
+        'role',
+        'dialog'
+    );
+
 
     Object.assign(
         panel.style,
@@ -3022,11 +3440,33 @@ function getPanel() {
         }
     );
 
-    document
-        .documentElement
+
+    applyPanelPosition(
+        panel,
+        PANEL_UI.intelPosition
+    );
+
+
+    installPanelDragging(
+        panel,
+        'intelPosition',
+        'tw2Intel.intelPanelPosition'
+    );
+
+
+    document.documentElement
         .appendChild(
             panel
         );
+
+
+    panel.style.display =
+        PANEL_UI.intelClosed
+            ?
+            'none'
+            :
+            'block';
+
 
     return panel;
 }
@@ -3043,14 +3483,25 @@ function getAttackPanel() {
             'tw2-attack-centre'
         );
 
-    if (panel)
+    if (panel) {
+
+        panel.style.display =
+            PANEL_UI.attacksClosed
+                ?
+                'none'
+                :
+                'block';
+
         return panel;
+    }
+
 
     if (
         !document.documentElement
     ) {
         return null;
     }
+
 
     panel =
         document.createElement(
@@ -3059,6 +3510,13 @@ function getAttackPanel() {
 
     panel.id =
         'tw2-attack-centre';
+
+
+    panel.setAttribute(
+        'role',
+        'dialog'
+    );
+
 
     Object.assign(
         panel.style,
@@ -3091,11 +3549,33 @@ function getAttackPanel() {
         }
     );
 
-    document
-        .documentElement
+
+    applyPanelPosition(
+        panel,
+        PANEL_UI.attacksPosition
+    );
+
+
+    installPanelDragging(
+        panel,
+        'attacksPosition',
+        'tw2Intel.attackPanelPosition'
+    );
+
+
+    document.documentElement
         .appendChild(
             panel
         );
+
+
+    panel.style.display =
+        PANEL_UI.attacksClosed
+            ?
+            'none'
+            :
+            'block';
+
 
     return panel;
 }
@@ -3113,6 +3593,8 @@ function render() {
         return;
     }
 
+    getPanelLauncher();
+
     renderMainPanel();
     renderAttackCentre();
 }
@@ -3123,8 +3605,12 @@ function renderMainPanel() {
     const panel =
         getPanel();
 
-    if (!panel)
+    if (
+        !panel ||
+        PANEL_UI.intelClosed
+    ) {
         return;
+    }
 
 
     const attacks =
@@ -3143,22 +3629,58 @@ function renderMainPanel() {
 
     let html = `
 
-    <div style="
-        display:flex;
-        justify-content:space-between;
-        align-items:center;
-    ">
+    <div
+        data-tw2-drag-handle
+        style="
+            display:flex;
+            justify-content:space-between;
+            align-items:center;
+            cursor:move;
+            touch-action:none;
+            user-select:none;
+            padding-bottom:4px;
+        "
+    >
 
         <b style="font-size:16px">
             ⚔ TW2 INTELLIGENCE
         </b>
 
-        <span style="
-            opacity:.55;
-            font-size:10px;
+        <div style="
+            display:flex;
+            align-items:center;
+            gap:7px;
         ">
-            v${S.version}
-        </span>
+
+            <span style="
+                opacity:.55;
+                font-size:10px;
+            ">
+                v${S.version}
+            </span>
+
+            <button
+                id="tw2-close-intel"
+                type="button"
+                title="Close"
+                style="
+                    width:28px;
+                    height:28px;
+                    padding:0;
+                    border:1px solid #777;
+                    border-radius:5px;
+                    background:#3b2323;
+                    color:#fff;
+                    font-size:18px;
+                    font-weight:bold;
+                    line-height:24px;
+                    cursor:pointer;
+                "
+            >
+                ×
+            </button>
+
+        </div>
 
     </div>
 
@@ -3258,10 +3780,7 @@ function renderMainPanel() {
     >
         ↻ Refresh Incoming
     </button>
-    `;
-
-
-    if (
+    `;    if (
         S.lastError
     ) {
 
@@ -3781,6 +4300,28 @@ function renderMainPanel() {
         html;
 
 
+    const closeIntel =
+        document.getElementById(
+            'tw2-close-intel'
+        );
+
+    if (closeIntel) {
+
+        closeIntel.onclick =
+            event => {
+
+                event.preventDefault();
+                event.stopPropagation();
+
+                PANEL_UI.intelClosed =
+                    true;
+
+                panel.style.display =
+                    'none';
+            };
+    }
+
+
     const refresh =
         document.getElementById(
             'tw2-refresh'
@@ -3815,8 +4356,12 @@ function renderAttackCentre() {
     const panel =
         getAttackPanel();
 
-    if (!panel)
+    if (
+        !panel ||
+        PANEL_UI.attacksClosed
+    ) {
         return;
+    }
 
 
     const attacks =
@@ -3862,11 +4407,18 @@ function renderAttackCentre() {
 
     let html = `
 
-    <div style="
-        display:flex;
-        justify-content:space-between;
-        align-items:center;
-    ">
+    <div
+        data-tw2-drag-handle
+        style="
+            display:flex;
+            justify-content:space-between;
+            align-items:center;
+            cursor:move;
+            touch-action:none;
+            user-select:none;
+            padding-bottom:4px;
+        "
+    >
 
         <b style="
             font-size:16px
@@ -3874,11 +4426,40 @@ function renderAttackCentre() {
             ⚔ INCOMING ATTACK CENTRE
         </b>
 
-        <span style="
-            opacity:.55
+        <div style="
+            display:flex;
+            align-items:center;
+            gap:7px;
         ">
-            v1.6.0
-        </span>
+
+            <span style="
+                opacity:.55
+            ">
+                v1.6.0
+            </span>
+
+            <button
+                id="tw2-close-attacks"
+                type="button"
+                title="Close"
+                style="
+                    width:28px;
+                    height:28px;
+                    padding:0;
+                    border:1px solid #777;
+                    border-radius:5px;
+                    background:#3b2323;
+                    color:#fff;
+                    font-size:18px;
+                    font-weight:bold;
+                    line-height:24px;
+                    cursor:pointer;
+                "
+            >
+                ×
+            </button>
+
+        </div>
 
     </div>
 
@@ -4063,10 +4644,7 @@ function renderAttackCentre() {
     `;
 
 
-/* ============================================================
-   PART 2 ENDS HERE
-   Part 3 continues with the Summary/All Attacks/Targets views.
-   ============================================================ */    /* ========================================================
+    /* ========================================================
        SUMMARY
        ======================================================== */
 
@@ -4149,10 +4727,7 @@ function renderAttackCentre() {
 
             html += targetCard(target);
         }
-    }
-
-
-    /* ========================================================
+    }    /* ========================================================
        ALL ATTACKS
        ======================================================== */
 
@@ -4716,6 +5291,32 @@ function renderAttackCentre() {
         html;
 
 
+    /*
+       New close button handler.
+    */
+
+    const closeAttacks =
+        document.getElementById(
+            'tw2-close-attacks'
+        );
+
+    if (closeAttacks) {
+
+        closeAttacks.onclick =
+            event => {
+
+                event.preventDefault();
+                event.stopPropagation();
+
+                PANEL_UI.attacksClosed =
+                    true;
+
+                panel.style.display =
+                    'none';
+            };
+    }
+
+
     panel
         .querySelectorAll(
             '[data-view]'
@@ -4962,9 +5563,7 @@ function targetCard(target) {
         Incoming:
         <b>
             ${target.attacks.length}
-        </b>
-
-        ${
+        </b>        ${
             target.noble
                 ?
                 ` &nbsp; 👑 <b>${target.noble}</b>`
@@ -5036,7 +5635,9 @@ setInterval(
    ============================================================ */
 
 setInterval(
-    () => {        if (
+    () => {
+
+        if (
             S.socketFound &&
             S.tokenEmit
         ) {
@@ -5098,1060 +5699,127 @@ window.tw2AttackCentre = {
 
 /* ============================================================
    MOBILE SHELL
-   Movable Intel / Attack windows for mobile.
-   Keeps collector/deposit engine unchanged.
    ============================================================ */
+
+/*
+ * The APK uses a desktop user-agent and can have a viewport
+ * wider than the old 760px mobile breakpoint.
+ *
+ * The main Intel and Attack Centre panels now already contain
+ * their own draggable title bars, close buttons and permanent
+ * reopen controls, so the old mobile shell must not create a
+ * second set of controls.
+ */
 
 function installMobileShell() {
 
-    if (document.getElementById('tw2-mobile-style'))
+    if (
+        document.getElementById(
+            'tw2-mobile-style'
+        )
+    ) {
         return;
+    }
 
-    const style = document.createElement('style');
 
-    style.id = 'tw2-mobile-style';
+    const style =
+        document.createElement(
+            'style'
+        );
+
+    style.id =
+        'tw2-mobile-style';
+
 
     style.textContent = `
 
-        #tw2-mobile-launcher,
-        #tw2-mobile-nav {
-            display:none;
+        /*
+         * Keep TW2 Intel controls above the game UI.
+         */
+
+        #tw2-panel-launcher {
+            z-index:2147483647 !important;
         }
 
-        @media (max-width: 760px) {
 
-            /*
-             * Hide the two panels until opened.
-             */
-            #tw2-intel-dashboard,
-            #tw2-attack-centre {
-                display:none !important;
+        /*
+         * Only the title/drag areas consume drag gestures.
+         * The rest of each panel can scroll normally.
+         */
 
-                position:fixed !important;
+        #tw2-intel-dashboard
+        [data-tw2-drag-handle],
 
-                width:min(390px, calc(100vw - 24px)) !important;
-                height:auto !important;
+        #tw2-attack-centre
+        [data-tw2-drag-handle] {
 
-                max-width:calc(100vw - 24px) !important;
-                max-height:72vh !important;
+            touch-action:none !important;
 
-                overflow-y:auto !important;
-                overflow-x:hidden !important;
-
-                box-sizing:border-box !important;
-
-                padding:10px !important;
-
-                font-size:12px !important;
-
-                z-index:2147483646 !important;
-
-                -webkit-overflow-scrolling:touch;
-
-                touch-action:pan-y;
-            }
+            -webkit-user-select:none !important;
+            user-select:none !important;
+        }
 
 
-            /*
-             * Show whichever window is active.
-             */
-            html.tw2-intel-open
+        #tw2-intel-dashboard,
+        #tw2-attack-centre {
+
+            box-sizing:border-box;
+
+            -webkit-overflow-scrolling:touch;
+        }
+
+
+        /*
+         * Slightly constrain the panels on genuinely
+         * narrow screens without changing their normal
+         * desktop/APK positioning.
+         */
+
+        @media (max-width:760px) {
+
             #tw2-intel-dashboard {
-                display:block !important;
+
+                width:min(
+                    350px,
+                    calc(100vw - 16px)
+                ) !important;
+
+                max-width:
+                    calc(100vw - 16px) !important;
+
+                max-height:
+                    calc(100vh - 90px) !important;
             }
 
-            html.tw2-attacks-open
+
             #tw2-attack-centre {
-                display:block !important;
+
+                width:min(
+                    560px,
+                    calc(100vw - 16px)
+                ) !important;
+
+                max-width:
+                    calc(100vw - 16px) !important;
+
+                max-height:
+                    calc(100vh - 90px) !important;
             }
 
 
-            /*
-             * Floating launcher.
-             */
-            #tw2-mobile-launcher {
-                display:flex;
+            #tw2-panel-launcher {
 
-                position:fixed;
-
-                right:14px;
-                bottom:78px;
-
-                width:54px;
-                height:54px;
-
-                align-items:center;
-                justify-content:center;
-
-                padding:0;
-
-                border-radius:50%;
-
-                border:2px solid #d6b66b;
-
-                background:#1b1b1b;
-                color:#fff;
-
-                font-size:25px;
-
-                z-index:2147483647;
-
-                box-shadow:
-                    0 4px 16px rgba(0,0,0,.7);
-
-                touch-action:manipulation;
-            }
-
-
-            /*
-             * Small control bar.
-             */
-            #tw2-mobile-nav {
-                position:fixed;
-
-                left:50%;
-                bottom:14px;
-
-                transform:translateX(-50%);
-
-                width:min(360px, calc(100vw - 24px));
-
-                height:46px;
-
-                gap:5px;
-
-                z-index:2147483647;
-            }
-
-
-            html.tw2-menu-open
-            #tw2-mobile-nav {
-                display:flex;
-            }
-
-
-            #tw2-mobile-nav button {
-
-                flex:1;
-
-                min-width:0;
-                min-height:42px;
-
-                border:1px solid #777;
-                border-radius:7px;
-
-                background:#242424;
-                color:#eee;
-
-                font-weight:bold;
-                font-size:12px;
-
-                touch-action:manipulation;
-            }
-
-
-            #tw2-mobile-nav button.tw2-active {
-
-                border-color:#d6b66b;
-                background:#3a3224;
-            }
-
-
-            #tw2-intel-dashboard button,
-            #tw2-attack-centre button {
-
-                min-height:36px;
-                font-size:12px;
-            }
-
-
-            /*
-             * Drag handle added to each window.
-             */
-            .tw2-mobile-drag {
-
-                position:sticky;
-
-                top:-10px;
-
-                z-index:20;
-
-                margin:-10px -10px 9px -10px;
-
-                padding:7px 8px;
-
-                display:flex;
-
-                align-items:center;
-                justify-content:space-between;
-
-                background:#111;
-
-                border-bottom:1px solid #666;
-
-                cursor:move;
-
-                touch-action:none;
-
-                user-select:none;
-                -webkit-user-select:none;
-            }
-
-
-            .tw2-mobile-drag-title {
-
-                font-weight:bold;
-                font-size:12px;
-
-                opacity:.85;
-            }
-
-
-            .tw2-mobile-window-close {
-
-                width:32px;
-                height:30px;
-
-                min-height:30px !important;
-
-                padding:0 !important;
-
-                border:1px solid #777 !important;
-                border-radius:5px;
-
-                background:#482525 !important;
-                color:#fff !important;
-
-                font-size:17px !important;
-
-                touch-action:manipulation;
+                right:8px !important;
+                bottom:8px !important;
             }
         }
     `;
 
 
-    document.documentElement.appendChild(
-        style
-    );
-
-
-    /* ========================================================
-       LAUNCHER
-       ======================================================== */
-
-    const launcher =
-        document.createElement('button');
-
-    launcher.id =
-        'tw2-mobile-launcher';
-
-    launcher.type =
-        'button';
-
-    launcher.textContent =
-        '⚔';
-
-    launcher.title =
-        'TW2 Intelligence';
-
-
-    /* ========================================================
-       MOBILE NAV
-       ======================================================== */
-
-    const nav =
-        document.createElement('div');
-
-    nav.id =
-        'tw2-mobile-nav';
-
-    nav.innerHTML = `
-
-        <button
-            type="button"
-            data-tw2-mobile="intel"
-        >
-            ⚔ Intel
-        </button>
-
-        <button
-            type="button"
-            data-tw2-mobile="attacks"
-        >
-            🚨 Attacks
-        </button>
-
-        <button
-            type="button"
-            data-tw2-mobile="close"
-        >
-            ✕ Close
-        </button>
-    `;
-
-
-    document.documentElement.appendChild(
-        launcher
-    );
-
-    document.documentElement.appendChild(
-        nav
-    );
-
-
-    /* ========================================================
-       POSITION STORAGE
-       ======================================================== */
-
-    function loadPosition(
-        name,
-        fallbackLeft,
-        fallbackTop
-    ) {
-
-        try {
-
-            const saved =
-                JSON.parse(
-                    localStorage.getItem(
-                        'tw2Intel.window.' + name
-                    )
-                );
-
-            if (
-                saved &&
-                Number.isFinite(saved.left) &&
-                Number.isFinite(saved.top)
-            ) {
-
-                return saved;
-            }
-
-        } catch(e) {}
-
-
-        return {
-            left:fallbackLeft,
-            top:fallbackTop
-        };
-    }
-
-
-    function savePosition(
-        name,
-        left,
-        top
-    ) {
-
-        try {
-
-            localStorage.setItem(
-
-                'tw2Intel.window.' + name,
-
-                JSON.stringify({
-                    left,
-                    top
-                })
-            );
-
-        } catch(e) {}
-    }
-
-
-    /* ========================================================
-       KEEP WINDOW ON SCREEN
-       ======================================================== */
-
-    function clampPosition(
-        panel,
-        left,
-        top
-    ) {
-
-        const rect =
-            panel.getBoundingClientRect();
-
-        const width =
-            rect.width || 350;
-
-        const height =
-            Math.min(
-                rect.height || 300,
-                window.innerHeight * 0.72
-            );
-
-
-        const maxLeft =
-            Math.max(
-                4,
-                window.innerWidth -
-                width -
-                4
-            );
-
-
-        const maxTop =
-            Math.max(
-                4,
-                window.innerHeight -
-                Math.min(
-                    height,
-                    80
-                ) -
-                4
-            );
-
-
-        return {
-
-            left:
-                Math.max(
-                    4,
-                    Math.min(
-                        left,
-                        maxLeft
-                    )
-                ),
-
-            top:
-                Math.max(
-                    4,
-                    Math.min(
-                        top,
-                        maxTop
-                    )
-                )
-        };
-    }
-
-
-    /* ========================================================
-       MAKE PANEL MOVABLE
-       ======================================================== */
-
-    function makeMovable(
-        panel,
-        name,
-        title
-    ) {
-
-        if (
-            !panel ||
-            panel.dataset.tw2Movable === '1'
-        ) {
-            return;
-        }
-
-
-        panel.dataset.tw2Movable =
-            '1';
-
-
-        const handle =
-            document.createElement('div');
-
-        handle.className =
-            'tw2-mobile-drag';
-
-
-        handle.innerHTML = `
-
-            <span class="tw2-mobile-drag-title">
-                ☰ ${esc(title)}
-            </span>
-
-            <button
-                type="button"
-                class="tw2-mobile-window-close"
-                title="Close"
-            >
-                ✕
-            </button>
-        `;
-
-
-        panel.insertBefore(
-            handle,
-            panel.firstChild
+    document.documentElement
+        .appendChild(
+            style
         );
-
-
-        const fallbackLeft =
-            name === 'intel'
-                ? 12
-                : Math.max(
-                    12,
-                    window.innerWidth - 402
-                );
-
-
-        const fallbackTop =
-            name === 'intel'
-                ? 58
-                : 78;
-
-
-        const saved =
-            loadPosition(
-                name,
-                fallbackLeft,
-                fallbackTop
-            );
-
-
-        const start =
-            clampPosition(
-                panel,
-                saved.left,
-                saved.top
-            );
-
-
-        panel.style.setProperty(
-            'left',
-            start.left + 'px',
-            'important'
-        );
-
-        panel.style.setProperty(
-            'top',
-            start.top + 'px',
-            'important'
-        );
-
-        panel.style.setProperty(
-            'right',
-            'auto',
-            'important'
-        );
-
-        panel.style.setProperty(
-            'bottom',
-            'auto',
-            'important'
-        );
-
-
-        /* ----------------------------------------------------
-           CLOSE BUTTON
-           ---------------------------------------------------- */
-
-        const close =
-            handle.querySelector(
-                '.tw2-mobile-window-close'
-            );
-
-
-        close.onclick =
-            event => {
-
-                event.preventDefault();
-                event.stopPropagation();
-
-                if (
-                    name === 'intel'
-                ) {
-
-                    document
-                        .documentElement
-                        .classList
-                        .remove(
-                            'tw2-intel-open'
-                        );
-
-                } else {
-
-                    document
-                        .documentElement
-                        .classList
-                        .remove(
-                            'tw2-attacks-open'
-                        );
-                }
-
-
-                updateMenuState();
-            };
-
-
-        /* ----------------------------------------------------
-           DRAGGING
-           ---------------------------------------------------- */
-
-        let dragging =
-            false;
-
-        let pointerId =
-            null;
-
-        let offsetX =
-            0;
-
-        let offsetY =
-            0;
-
-
-        handle.addEventListener(
-
-            'pointerdown',
-
-            event => {
-
-                if (
-                    event.target.closest(
-                        '.tw2-mobile-window-close'
-                    )
-                ) {
-                    return;
-                }
-
-
-                dragging =
-                    true;
-
-                pointerId =
-                    event.pointerId;
-
-
-                const rect =
-                    panel.getBoundingClientRect();
-
-
-                offsetX =
-                    event.clientX -
-                    rect.left;
-
-                offsetY =
-                    event.clientY -
-                    rect.top;
-
-
-                try {
-
-                    handle.setPointerCapture(
-                        pointerId
-                    );
-
-                } catch(e) {}
-
-
-                event.preventDefault();
-            }
-        );
-
-
-        handle.addEventListener(
-
-            'pointermove',
-
-            event => {
-
-                if (
-                    !dragging ||
-                    event.pointerId !==
-                    pointerId
-                ) {
-                    return;
-                }
-
-
-                let left =
-                    event.clientX -
-                    offsetX;
-
-                let top =
-                    event.clientY -
-                    offsetY;
-
-
-                const position =
-                    clampPosition(
-                        panel,
-                        left,
-                        top
-                    );
-
-
-                panel.style.setProperty(
-                    'left',
-                    position.left + 'px',
-                    'important'
-                );
-
-                panel.style.setProperty(
-                    'top',
-                    position.top + 'px',
-                    'important'
-                );
-
-
-                event.preventDefault();
-            }
-        );
-
-
-        function finishDrag(
-            event
-        ) {
-
-            if (!dragging)
-                return;
-
-
-            if (
-                event &&
-                pointerId !== null &&
-                event.pointerId !==
-                pointerId
-            ) {
-                return;
-            }
-
-
-            dragging =
-                false;
-
-
-            const rect =
-                panel.getBoundingClientRect();
-
-
-            savePosition(
-                name,
-                rect.left,
-                rect.top
-            );
-
-
-            try {
-
-                if (
-                    pointerId !== null
-                ) {
-
-                    handle.releasePointerCapture(
-                        pointerId
-                    );
-                }
-
-            } catch(e) {}
-
-
-            pointerId =
-                null;
-        }
-
-
-        handle.addEventListener(
-            'pointerup',
-            finishDrag
-        );
-
-        handle.addEventListener(
-            'pointercancel',
-            finishDrag
-        );
-    }
-
-
-    /* ========================================================
-       RE-ADD HANDLES AFTER RENDER()
-       
-       renderMainPanel/renderAttackCentre replace innerHTML,
-       so the handles must be restored afterwards.
-       ======================================================== */
-
-    function ensureHandles() {
-
-        const intel =
-            document.getElementById(
-                'tw2-intel-dashboard'
-            );
-
-        const attacks =
-            document.getElementById(
-                'tw2-attack-centre'
-            );
-
-
-        if (intel) {
-
-            intel.dataset.tw2Movable =
-                '';
-
-            if (
-                !intel.querySelector(
-                    '.tw2-mobile-drag'
-                )
-            ) {
-
-                makeMovable(
-                    intel,
-                    'intel',
-                    'TW2 INTELLIGENCE'
-                );
-            }
-        }
-
-
-        if (attacks) {
-
-            attacks.dataset.tw2Movable =
-                '';
-
-            if (
-                !attacks.querySelector(
-                    '.tw2-mobile-drag'
-                )
-            ) {
-
-                makeMovable(
-                    attacks,
-                    'attacks',
-                    'INCOMING ATTACK CENTRE'
-                );
-            }
-        }
-    }
-
-
-    /* ========================================================
-       MENU STATE
-       ======================================================== */
-
-    function updateMenuState() {
-
-        const root =
-            document.documentElement;
-
-
-        nav
-            .querySelectorAll(
-                '[data-tw2-mobile]'
-            )
-            .forEach(
-                button => {
-
-                    const type =
-                        button.getAttribute(
-                            'data-tw2-mobile'
-                        );
-
-
-                    let active =
-                        false;
-
-
-                    if (
-                        type === 'intel'
-                    ) {
-
-                        active =
-                            root.classList.contains(
-                                'tw2-intel-open'
-                            );
-                    }
-
-
-                    if (
-                        type === 'attacks'
-                    ) {
-
-                        active =
-                            root.classList.contains(
-                                'tw2-attacks-open'
-                            );
-                    }
-
-
-                    button.classList.toggle(
-                        'tw2-active',
-                        active
-                    );
-                }
-            );
-    }
-
-
-    /* ========================================================
-       OPEN INTEL
-       ======================================================== */
-
-    function openIntel() {
-
-        const root =
-            document.documentElement;
-
-
-        root.classList.add(
-            'tw2-menu-open'
-        );
-
-        root.classList.add(
-            'tw2-intel-open'
-        );
-
-
-        render();
-
-
-        setTimeout(
-            () => {
-
-                ensureHandles();
-                updateMenuState();
-
-            },
-            0
-        );
-    }
-
-
-    /* ========================================================
-       OPEN ATTACKS
-       ======================================================== */
-
-    function openAttacks() {
-
-        const root =
-            document.documentElement;
-
-
-        root.classList.add(
-            'tw2-menu-open'
-        );
-
-        root.classList.add(
-            'tw2-attacks-open'
-        );
-
-
-        render();
-
-
-        setTimeout(
-            () => {
-
-                ensureHandles();
-                updateMenuState();
-
-            },
-            0
-        );
-    }
-
-
-    /* ========================================================
-       CLOSE ALL
-       ======================================================== */
-
-    function closeAll() {
-
-        const root =
-            document.documentElement;
-
-
-        root.classList.remove(
-            'tw2-intel-open'
-        );
-
-        root.classList.remove(
-            'tw2-attacks-open'
-        );
-
-        root.classList.remove(
-            'tw2-menu-open'
-        );
-
-
-        updateMenuState();
-    }
-
-
-    /* ========================================================
-       BUTTON ACTIONS
-       ======================================================== */
-
-    launcher.onclick =
-        () => {
-
-            const root =
-                document.documentElement;
-
-
-            const anyOpen =
-                root.classList.contains(
-                    'tw2-intel-open'
-                )
-                ||
-                root.classList.contains(
-                    'tw2-attacks-open'
-                );
-
-
-            if (anyOpen) {
-
-                closeAll();
-
-            } else {
-
-                openIntel();
-            }
-        };
-
-
-    nav
-        .querySelector(
-            '[data-tw2-mobile="intel"]'
-        )
-        .onclick =
-            openIntel;
-
-
-    nav
-        .querySelector(
-            '[data-tw2-mobile="attacks"]'
-        )
-        .onclick =
-            openAttacks;
-
-
-    nav
-        .querySelector(
-            '[data-tw2-mobile="close"]'
-        )
-        .onclick =
-            closeAll;
-
-
-    /*
-     * The normal render() function rebuilds the panel
-     * contents every second. Watch for that and restore
-     * the movable title bars.
-     */
-    const observer =
-        new MutationObserver(
-            () => {
-
-                ensureHandles();
-            }
-        );
-
-
-    observer.observe(
-        document.documentElement,
-        {
-            childList:true,
-            subtree:true
-        }
-    );
-
-
-    setTimeout(
-        ensureHandles,
-        100
-    );
 }
 
 
@@ -6174,6 +5842,8 @@ function boot() {
 
 
     installMobileShell();
+
+    getPanelLauncher();
 
     render();
 }
