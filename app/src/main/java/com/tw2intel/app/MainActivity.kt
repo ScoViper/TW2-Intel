@@ -16,11 +16,11 @@ class MainActivity : Activity() {
     private lateinit var webView: WebView
 
     /*
-     * Approximate width of the TW2 desktop game interface.
-     * The app calculates the scale needed to fit this width
-     * onto the phone automatically.
+     * Give TW2 a little more desktop width so the
+     * complete interface, including the right controls,
+     * fits inside the phone screen.
      */
-    private val tw2DesktopWidth = 1920f
+    private val tw2DesktopWidth = 2150f
 
     private val touchMouseBridge = """
         (function() {
@@ -89,32 +89,30 @@ class MainActivity : Activity() {
             function mouse(type, x, y, element) {
 
                 if (!element) {
-                    element =
-                        document.elementFromPoint(x, y);
+                    element = document.elementFromPoint(x, y);
                 }
 
                 if (!element) return;
 
-                const event =
-                    new MouseEvent(type, {
+                const event = new MouseEvent(type, {
 
-                        bubbles: true,
-                        cancelable: true,
-                        view: window,
+                    bubbles: true,
+                    cancelable: true,
+                    view: window,
 
-                        clientX: x,
-                        clientY: y,
+                    clientX: x,
+                    clientY: y,
 
-                        screenX: x,
-                        screenY: y,
+                    screenX: x,
+                    screenY: y,
 
-                        button: 0,
+                    button: 0,
 
-                        buttons:
-                            type === "mouseup"
-                                ? 0
-                                : 1
-                    });
+                    buttons:
+                        type === "mouseup"
+                            ? 0
+                            : 1
+                });
 
                 element.dispatchEvent(event);
             }
@@ -123,10 +121,6 @@ class MainActivity : Activity() {
                 "touchstart",
                 function(e) {
 
-                    /*
-                     * Leave two-finger gestures alone
-                     * for pinch zoom.
-                     */
                     if (e.touches.length !== 1) {
 
                         mapTouch = false;
@@ -288,9 +282,7 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
 
         webView = WebView(this)
-
         setContentView(webView)
-
 
         CookieManager.getInstance().apply {
 
@@ -302,13 +294,10 @@ class MainActivity : Activity() {
             )
         }
 
-
         webView.settings.apply {
 
             javaScriptEnabled = true
-
             domStorageEnabled = true
-
             databaseEnabled = true
 
             cacheMode =
@@ -318,32 +307,15 @@ class MainActivity : Activity() {
                 false
 
             allowFileAccess = false
-
             allowContentAccess = false
 
-
-            /*
-             * Keep TW2's desktop layout.
-             */
             useWideViewPort = true
-
             loadWithOverviewMode = true
 
-
-            /*
-             * Keep pinch zoom enabled.
-             */
             builtInZoomControls = true
-
             displayZoomControls = false
-
             setSupportZoom(true)
 
-
-            /*
-             * Desktop UA prevents TW2 from
-             * redirecting to Google Play.
-             */
             userAgentString =
                 "Mozilla/5.0 " +
                 "(Windows NT 10.0; Win64; x64) " +
@@ -353,14 +325,11 @@ class MainActivity : Activity() {
                 "Safari/537.36"
         }
 
-
         webView.webChromeClient =
             WebChromeClient()
 
-
         webView.webViewClient =
             object : WebViewClient() {
-
 
                 override fun shouldOverrideUrlLoading(
                     view: WebView?,
@@ -378,13 +347,11 @@ class MainActivity : Activity() {
                             "play.google.com/store/apps/details"
                         )
                     ) {
-
                         return true
                     }
 
                     return false
                 }
-
 
                 @Deprecated("Deprecated in Java")
                 override fun shouldOverrideUrlLoading(
@@ -402,13 +369,11 @@ class MainActivity : Activity() {
                             )
                         )
                     ) {
-
                         return true
                     }
 
                     return false
                 }
-
 
                 override fun onPageFinished(
                     view: WebView?,
@@ -426,21 +391,11 @@ class MainActivity : Activity() {
                         ) == true
                     ) {
 
-                        /*
-                         * Keep our working touchscreen
-                         * map control.
-                         */
                         view?.evaluateJavascript(
                             touchMouseBridge,
                             null
                         )
 
-
-                        /*
-                         * Give TW2 time to finish building
-                         * its interface before calculating
-                         * the correct scale.
-                         */
                         view?.postDelayed(
                             {
                                 fitTw2ToScreen()
@@ -450,7 +405,6 @@ class MainActivity : Activity() {
                     }
                 }
             }
-
 
         if (savedInstanceState == null) {
 
@@ -476,22 +430,12 @@ class MainActivity : Activity() {
             return
         }
 
-
-        /*
-         * WebView width is physical pixels.
-         * Convert it to density-independent width.
-         */
         val density =
             resources.displayMetrics.density
 
         val availableWidth =
             widthPixels / density
 
-
-        /*
-         * Calculate percentage needed to fit
-         * the 1920-wide TW2 desktop interface.
-         */
         var scale =
             (
                 availableWidth /
@@ -499,16 +443,16 @@ class MainActivity : Activity() {
                 100f
             ).toInt()
 
-
         /*
-         * Keep it within sensible limits.
+         * Previously this stopped at 25%.
+         * Allow it down to 20% so the right edge
+         * can fit completely on the phone.
          */
         scale =
             scale.coerceIn(
-                25,
+                20,
                 100
             )
-
 
         webView.setInitialScale(
             scale
@@ -516,11 +460,6 @@ class MainActivity : Activity() {
     }
 
 
-    /*
-     * Your manifest already tells Android that
-     * this Activity handles orientation/screen-size
-     * changes itself.
-     */
     override fun onConfigurationChanged(
         newConfig: Configuration
     ) {
@@ -529,11 +468,6 @@ class MainActivity : Activity() {
             newConfig
         )
 
-
-        /*
-         * Wait until Android has resized the WebView,
-         * then calculate the fit again.
-         */
         webView.postDelayed(
             {
                 fitTw2ToScreen()
