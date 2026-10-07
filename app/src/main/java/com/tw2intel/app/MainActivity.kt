@@ -29,6 +29,7 @@ class MainActivity : Activity() {
             const DRAG_THRESHOLD = 8;
 
             function mouse(type, x, y, element) {
+
                 if (!element) {
                     element = document.elementFromPoint(x, y);
                 }
@@ -51,21 +52,29 @@ class MainActivity : Activity() {
             }
 
             document.addEventListener("touchstart", function(e) {
+
                 if (e.touches.length !== 1) return;
 
                 const t = e.touches[0];
 
                 startX = t.clientX;
                 startY = t.clientY;
+
                 lastX = startX;
                 lastY = startY;
 
                 dragging = false;
-                target = document.elementFromPoint(startX, startY);
+
+                target = document.elementFromPoint(
+                    startX,
+                    startY
+                );
 
             }, true);
 
+
             document.addEventListener("touchmove", function(e) {
+
                 if (e.touches.length !== 1) return;
 
                 const t = e.touches[0];
@@ -73,154 +82,307 @@ class MainActivity : Activity() {
                 const dx = t.clientX - startX;
                 const dy = t.clientY - startY;
 
-                if (!dragging &&
-                    Math.sqrt(dx * dx + dy * dy) > DRAG_THRESHOLD) {
+                if (
+                    !dragging &&
+                    Math.sqrt(dx * dx + dy * dy) > DRAG_THRESHOLD
+                ) {
 
                     dragging = true;
-                    mouse("mousedown", startX, startY, target);
+
+                    mouse(
+                        "mousedown",
+                        startX,
+                        startY,
+                        target
+                    );
                 }
 
                 if (dragging) {
+
                     e.preventDefault();
 
                     lastX = t.clientX;
                     lastY = t.clientY;
 
-                    mouse("mousemove", lastX, lastY, target);
+                    mouse(
+                        "mousemove",
+                        lastX,
+                        lastY,
+                        target
+                    );
                 }
 
-            }, { capture: true, passive: false });
+            }, {
+                capture: true,
+                passive: false
+            });
+
 
             document.addEventListener("touchend", function(e) {
 
                 if (dragging) {
+
                     e.preventDefault();
 
-                    mouse("mouseup", lastX, lastY, target);
-
-                    dragging = false;
-                    target = null;
-                }
-
-            }, { capture: true, passive: false });
-
-            document.addEventListener("touchcancel", function() {
-                if (dragging) {
-                    mouse("mouseup", lastX, lastY, target);
+                    mouse(
+                        "mouseup",
+                        lastX,
+                        lastY,
+                        target
+                    );
                 }
 
                 dragging = false;
                 target = null;
+
+            }, {
+                capture: true,
+                passive: false
+            });
+
+
+            document.addEventListener("touchcancel", function() {
+
+                if (dragging) {
+
+                    mouse(
+                        "mouseup",
+                        lastX,
+                        lastY,
+                        target
+                    );
+                }
+
+                dragging = false;
+                target = null;
+
             }, true);
 
         })();
     """.trimIndent()
 
+
+    /*
+     * TW2 uses a desktop-sized page.
+     *
+     * This changes the viewport so WebView scales the
+     * desktop game to the actual width of the phone.
+     */
+    private val viewportFix = """
+        (function() {
+
+            function fixViewport() {
+
+                let viewport =
+                    document.querySelector(
+                        'meta[name="viewport"]'
+                    );
+
+                if (!viewport) {
+
+                    viewport =
+                        document.createElement("meta");
+
+                    viewport.name = "viewport";
+
+                    document.head.appendChild(viewport);
+                }
+
+                viewport.setAttribute(
+                    "content",
+                    "width=device-width," +
+                    "initial-scale=1.0," +
+                    "minimum-scale=0.25," +
+                    "maximum-scale=3.0," +
+                    "user-scalable=yes"
+                );
+
+                document.documentElement.style.maxWidth = "100vw";
+                document.documentElement.style.overflowX = "hidden";
+
+                document.body.style.maxWidth = "100vw";
+                document.body.style.overflowX = "hidden";
+            }
+
+            fixViewport();
+
+            setTimeout(fixViewport, 500);
+            setTimeout(fixViewport, 1500);
+            setTimeout(fixViewport, 3000);
+
+        })();
+    """.trimIndent()
+
+
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
+
         super.onCreate(savedInstanceState)
 
         webView = WebView(this)
+
         setContentView(webView)
 
+
         CookieManager.getInstance().apply {
+
             setAcceptCookie(true)
-            setAcceptThirdPartyCookies(webView, true)
+
+            setAcceptThirdPartyCookies(
+                webView,
+                true
+            )
         }
+
 
         webView.settings.apply {
+
             javaScriptEnabled = true
+
             domStorageEnabled = true
+
             databaseEnabled = true
-            cacheMode = WebSettings.LOAD_DEFAULT
-            mediaPlaybackRequiresUserGesture = false
+
+            cacheMode =
+                WebSettings.LOAD_DEFAULT
+
+            mediaPlaybackRequiresUserGesture =
+                false
+
 
             allowFileAccess = false
+
             allowContentAccess = false
 
+
+            /*
+             * Important:
+             *
+             * TW2 still thinks this is a desktop browser,
+             * but WebView is allowed to fit that desktop
+             * page into the available phone width.
+             */
             useWideViewPort = true
+
             loadWithOverviewMode = true
 
-            // Pinch-to-zoom support
+
             builtInZoomControls = true
+
             displayZoomControls = false
+
             setSupportZoom(true)
 
-            // Keep desktop browser identity so TW2
-            // doesn't redirect to Google Play.
+
             userAgentString =
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
-                "AppleWebKit/537.36 (KHTML, like Gecko) " +
-                "Chrome/140.0.0.0 Safari/537.36"
+                "Mozilla/5.0 " +
+                "(Windows NT 10.0; Win64; x64) " +
+                "AppleWebKit/537.36 " +
+                "(KHTML, like Gecko) " +
+                "Chrome/140.0.0.0 " +
+                "Safari/537.36"
         }
 
-        webView.webChromeClient = WebChromeClient()
 
-        webView.webViewClient = object : WebViewClient() {
+        webView.webChromeClient =
+            WebChromeClient()
 
-            override fun shouldOverrideUrlLoading(
-                view: WebView?,
-                request: WebResourceRequest?
-            ): Boolean {
 
-                val url = request?.url?.toString() ?: return false
+        webView.webViewClient =
+            object : WebViewClient() {
 
-                if (
-                    url.startsWith("intent://") ||
-                    url.startsWith("market://") ||
-                    url.contains("play.google.com/store/apps/details")
-                ) {
-                    return true
-                }
 
-                return false
-            }
+                override fun shouldOverrideUrlLoading(
+                    view: WebView?,
+                    request: WebResourceRequest?
+                ): Boolean {
 
-            @Deprecated("Deprecated in Java")
-            override fun shouldOverrideUrlLoading(
-                view: WebView?,
-                url: String?
-            ): Boolean {
+                    val url =
+                        request?.url?.toString()
+                            ?: return false
 
-                if (
-                    url != null &&
-                    (
+
+                    if (
                         url.startsWith("intent://") ||
                         url.startsWith("market://") ||
-                        url.contains("play.google.com/store/apps/details")
-                    )
+                        url.contains(
+                            "play.google.com/store/apps/details"
+                        )
+                    ) {
+
+                        return true
+                    }
+
+
+                    return false
+                }
+
+
+                @Deprecated("Deprecated in Java")
+                override fun shouldOverrideUrlLoading(
+                    view: WebView?,
+                    url: String?
+                ): Boolean {
+
+                    if (
+                        url != null &&
+                        (
+                            url.startsWith("intent://") ||
+                            url.startsWith("market://") ||
+                            url.contains(
+                                "play.google.com/store/apps/details"
+                            )
+                        )
+                    ) {
+
+                        return true
+                    }
+
+
+                    return false
+                }
+
+
+                override fun onPageFinished(
+                    view: WebView?,
+                    url: String?
                 ) {
-                    return true
-                }
 
-                return false
-            }
-
-            override fun onPageFinished(
-                view: WebView?,
-                url: String?
-            ) {
-                super.onPageFinished(view, url)
-
-                if (url?.contains("tribalwars2.com") == true) {
-
-                    // Start TW2 at 45% so the full desktop
-                    // interface fits better on the phone.
-                    view?.setInitialScale(45)
-
-                    // Enable one-finger dragging on
-                    // the desktop TW2 map.
-                    view?.evaluateJavascript(
-                        touchMouseBridge,
-                        null
+                    super.onPageFinished(
+                        view,
+                        url
                     )
+
+
+                    if (
+                        url?.contains(
+                            "tribalwars2.com"
+                        ) == true
+                    ) {
+
+                        /*
+                         * First fix the desktop viewport.
+                         */
+                        view?.evaluateJavascript(
+                            viewportFix,
+                            null
+                        )
+
+
+                        /*
+                         * Then install our working
+                         * touchscreen -> mouse bridge.
+                         */
+                        view?.evaluateJavascript(
+                            touchMouseBridge,
+                            null
+                        )
+                    }
                 }
             }
-        }
+
 
         if (savedInstanceState == null) {
-
-            webView.setInitialScale(45)
 
             webView.loadUrl(
                 "https://en.tribalwars2.com/"
@@ -228,29 +390,45 @@ class MainActivity : Activity() {
 
         } else {
 
-            webView.restoreState(savedInstanceState)
+            webView.restoreState(
+                savedInstanceState
+            )
         }
     }
+
 
     override fun onSaveInstanceState(
         outState: Bundle
     ) {
-        webView.saveState(outState)
-        super.onSaveInstanceState(outState)
+
+        webView.saveState(
+            outState
+        )
+
+        super.onSaveInstanceState(
+            outState
+        )
     }
+
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
 
         if (webView.canGoBack()) {
+
             webView.goBack()
+
         } else {
+
             super.onBackPressed()
         }
     }
 
+
     override fun onDestroy() {
+
         webView.destroy()
+
         super.onDestroy()
     }
 }
