@@ -146,8 +146,8 @@ class MainActivity : Activity() {
             displayZoomControls = false
             setSupportZoom(true)
 
-            // Desktop browser identity prevents TW2
-            // redirecting to Google Play.
+            // Keep desktop browser identity so TW2
+            // doesn't redirect to Google Play.
             userAgentString =
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
                 "AppleWebKit/537.36 (KHTML, like Gecko) " +
@@ -204,12 +204,12 @@ class MainActivity : Activity() {
 
                 if (url?.contains("tribalwars2.com") == true) {
 
-                    // Scale TW2 desktop interface down
-                    // to better fit the phone screen.
-                    view?.setInitialScale(50)
+                    // Start TW2 at 45% so the full desktop
+                    // interface fits better on the phone.
+                    view?.setInitialScale(45)
 
-                    // Enable finger dragging on the
-                    // desktop TW2 map.
+                    // Enable one-finger dragging on
+                    // the desktop TW2 map.
                     view?.evaluateJavascript(
                         touchMouseBridge,
                         null
@@ -220,7 +220,7 @@ class MainActivity : Activity() {
 
         if (savedInstanceState == null) {
 
-            webView.setInitialScale(50)
+            webView.setInitialScale(45)
 
             webView.loadUrl(
                 "https://en.tribalwars2.com/"
