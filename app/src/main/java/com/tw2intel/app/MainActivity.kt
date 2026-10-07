@@ -141,10 +141,13 @@ class MainActivity : Activity() {
             useWideViewPort = true
             loadWithOverviewMode = true
 
+            // Pinch-to-zoom support
             builtInZoomControls = true
             displayZoomControls = false
             setSupportZoom(true)
 
+            // Desktop browser identity prevents TW2
+            // redirecting to Google Play.
             userAgentString =
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
                 "AppleWebKit/537.36 (KHTML, like Gecko) " +
@@ -162,9 +165,11 @@ class MainActivity : Activity() {
 
                 val url = request?.url?.toString() ?: return false
 
-                if (url.startsWith("intent://") ||
+                if (
+                    url.startsWith("intent://") ||
                     url.startsWith("market://") ||
-                    url.contains("play.google.com/store/apps/details")) {
+                    url.contains("play.google.com/store/apps/details")
+                ) {
                     return true
                 }
 
@@ -177,43 +182,66 @@ class MainActivity : Activity() {
                 url: String?
             ): Boolean {
 
-                if (url != null &&
-                    (url.startsWith("intent://") ||
-                     url.startsWith("market://") ||
-                     url.contains("play.google.com/store/apps/details"))) {
+                if (
+                    url != null &&
+                    (
+                        url.startsWith("intent://") ||
+                        url.startsWith("market://") ||
+                        url.contains("play.google.com/store/apps/details")
+                    )
+                ) {
                     return true
                 }
 
                 return false
             }
 
-            override fun onPageFinished(view: WebView?, url: String?) {
+            override fun onPageFinished(
+                view: WebView?,
+                url: String?
+            ) {
                 super.onPageFinished(view, url)
 
                 if (url?.contains("tribalwars2.com") == true) {
-                    view?.setInitialScale(60)
 
-                    // Add touchscreen support for TW2's desktop map.
-                    view?.evaluateJavascript(touchMouseBridge, null)
+                    // Scale TW2 desktop interface down
+                    // to better fit the phone screen.
+                    view?.setInitialScale(50)
+
+                    // Enable finger dragging on the
+                    // desktop TW2 map.
+                    view?.evaluateJavascript(
+                        touchMouseBridge,
+                        null
+                    )
                 }
             }
         }
 
         if (savedInstanceState == null) {
-            webView.setInitialScale(60)
-            webView.loadUrl("https://en.tribalwars2.com/")
+
+            webView.setInitialScale(50)
+
+            webView.loadUrl(
+                "https://en.tribalwars2.com/"
+            )
+
         } else {
+
             webView.restoreState(savedInstanceState)
         }
     }
 
-    override fun onSaveInstanceState(outState: Bundle) {
+    override fun onSaveInstanceState(
+        outState: Bundle
+    ) {
         webView.saveState(outState)
         super.onSaveInstanceState(outState)
     }
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
+
         if (webView.canGoBack()) {
             webView.goBack()
         } else {
