@@ -1,13 +1,14 @@
 package com.tw2intel.app
 
 import android.annotation.SuppressLint
+import android.app.Activity
 import android.os.Bundle
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.app.Activity
 
 class MainActivity : Activity() {
 
@@ -40,7 +41,40 @@ class MainActivity : Activity() {
         }
 
         webView.webChromeClient = WebChromeClient()
-        webView.webViewClient = WebViewClient()
+
+        webView.webViewClient = object : WebViewClient() {
+
+            override fun shouldOverrideUrlLoading(
+                view: WebView?,
+                request: WebResourceRequest?
+            ): Boolean {
+
+                val url = request?.url?.toString() ?: return false
+
+                // Stop TW2 redirecting this WebView to its Android app.
+                if (url.startsWith("intent://") ||
+                    url.startsWith("market://")) {
+                    return true
+                }
+
+                return false
+            }
+
+            @Deprecated("Deprecated in Java")
+            override fun shouldOverrideUrlLoading(
+                view: WebView?,
+                url: String?
+            ): Boolean {
+
+                if (url != null &&
+                    (url.startsWith("intent://") ||
+                     url.startsWith("market://"))) {
+                    return true
+                }
+
+                return false
+            }
+        }
 
         if (savedInstanceState == null) {
             webView.loadUrl("https://en.tribalwars2.com/")
