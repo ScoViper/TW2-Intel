@@ -1,42 +1,21 @@
+
 package com.tw2intel.app
 
-import android.annotation.SuppressLint
 import android.app.Activity
 import android.os.Bundle
-import android.webkit.CookieManager
-import android.webkit.WebChromeClient
-import android.webkit.WebSettings
-import android.webkit.WebView
-import android.webkit.WebViewClient
-import androidx.webkit.WebViewCompat
-import androidx.webkit.WebViewFeature
+import android.widget.TextView
 
 class MainActivity : Activity() {
-    private lateinit var webView: WebView
 
-    @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        webView = WebView(this)
-        setContentView(webView)
-
-
-
-        if (savedInstanceState == null) {
-            webView.loadUrl("https://en.tribalwars2.com/")
-        } else {
-            webView.restoreState(savedInstanceState)
+        val text = TextView(this).apply {
+            text = "TW2 Intel\n\nAndroid app is running successfully."
+            textSize = 22f
+            gravity = android.view.Gravity.CENTER
         }
-    }
 
-    override fun onSaveInstanceState(outState: Bundle) {
-        webView.saveState(outState)
-        super.onSaveInstanceState(outState)
-    }
-
-    @Deprecated("Deprecated in Java")
-    override fun onBackPressed() {
-        if (webView.canGoBack()) webView.goBack() else super.onBackPressed()
+        setContentView(text)
     }
 }
