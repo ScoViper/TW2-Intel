@@ -18,8 +18,7 @@ class MainActivity : Activity() {
      * Converts single-finger movement over the TW2 map
      * into mouse movement.
      *
-     * This is the version that allowed the map to be
-     * dragged around correctly.
+     * KEEP THIS - this is what makes map dragging work.
      */
     private val touchMouseBridge = """
         (function() {
@@ -87,9 +86,7 @@ class MainActivity : Activity() {
             function mouse(type, x, y, element) {
 
                 if (!element) {
-
-                    element =
-                        document.elementFromPoint(x, y);
+                    element = document.elementFromPoint(x, y);
                 }
 
                 if (!element) return;
@@ -276,8 +273,8 @@ class MainActivity : Activity() {
 
 
     /*
-     * Restore the viewport that gave us the
-     * large manual pinch-zoom range.
+     * Keep the wide viewport and full manual
+     * pinch-zoom range that is working now.
      */
     private val viewportFix = """
         (function() {
@@ -314,10 +311,6 @@ class MainActivity : Activity() {
                 );
             }
 
-            /*
-             * Apply immediately and again while
-             * TW2 is constructing the page.
-             */
             applyTW2Viewport();
 
             setTimeout(
@@ -348,8 +341,7 @@ class MainActivity : Activity() {
             savedInstanceState
         );
 
-        webView =
-            WebView(this);
+        webView = WebView(this);
 
         setContentView(
             webView
@@ -371,7 +363,7 @@ class MainActivity : Activity() {
                     webView,
                     true
                 );
-            };
+            }
 
 
         webView.settings.apply {
@@ -403,9 +395,7 @@ class MainActivity : Activity() {
 
 
             /*
-             * IMPORTANT:
-             *
-             * Leave Android pinch zoom enabled.
+             * KEEP pinch zoom enabled.
              */
             builtInZoomControls = true;
 
@@ -416,7 +406,7 @@ class MainActivity : Activity() {
 
             /*
              * Desktop Chrome UA prevents TW2
-             * redirecting us to the Android app.
+             * redirecting to Google Play.
              */
             userAgentString =
                 "Mozilla/5.0 " +
@@ -424,12 +414,12 @@ class MainActivity : Activity() {
                 "AppleWebKit/537.36 " +
                 "(KHTML, like Gecko) " +
                 "Chrome/140.0.0.0 " +
-                "Safari/537.36";
-        };
+                "Safari/537.36"
+        }
 
 
         webView.webChromeClient =
-            WebChromeClient();
+            WebChromeClient()
 
 
         webView.webViewClient =
@@ -445,12 +435,12 @@ class MainActivity : Activity() {
                         request
                             ?.url
                             ?.toString()
-                            ?: return false;
+                            ?: return false
 
 
                     /*
-                     * Don't let TW2 send us to
-                     * Google Play.
+                     * Don't let TW2 send us
+                     * to Google Play.
                      */
                     if (
                         url.startsWith(
@@ -464,11 +454,11 @@ class MainActivity : Activity() {
                         )
                     ) {
 
-                        return true;
+                        return true
                     }
 
 
-                    return false;
+                    return false
                 }
 
 
@@ -495,11 +485,11 @@ class MainActivity : Activity() {
                         )
                     ) {
 
-                        return true;
+                        return true
                     }
 
 
-                    return false;
+                    return false
                 }
 
 
@@ -511,7 +501,7 @@ class MainActivity : Activity() {
                     super.onPageFinished(
                         view,
                         url
-                    );
+                    )
 
 
                     if (
@@ -521,25 +511,39 @@ class MainActivity : Activity() {
                     ) {
 
                         /*
-                         * Restore the wide TW2
-                         * pinch-zoom range.
+                         * Keep our working TW2 viewport.
                          */
                         view?.evaluateJavascript(
                             viewportFix,
                             null
-                        );
+                        )
 
 
                         /*
-                         * Restore working map dragging.
+                         * Keep working map dragging.
                          */
                         view?.evaluateJavascript(
                             touchMouseBridge,
                             null
-                        );
+                        )
+
+
+                        /*
+                         * FINAL CHANGE:
+                         *
+                         * Start the WebView further zoomed out.
+                         *
+                         * This does NOT disable pinch zoom.
+                         */
+                        view?.postDelayed(
+                            {
+                                view.setInitialScale(50)
+                            },
+                            3500
+                        )
                     }
                 }
-            };
+            }
 
 
         if (
@@ -548,13 +552,13 @@ class MainActivity : Activity() {
 
             webView.loadUrl(
                 "https://en.tribalwars2.com/"
-            );
+            )
 
         } else {
 
             webView.restoreState(
                 savedInstanceState
-            );
+            )
         }
     }
 
@@ -565,11 +569,11 @@ class MainActivity : Activity() {
 
         webView.saveState(
             outState
-        );
+        )
 
         super.onSaveInstanceState(
             outState
-        );
+        )
     }
 
 
@@ -582,19 +586,19 @@ class MainActivity : Activity() {
             webView.canGoBack()
         ) {
 
-            webView.goBack();
+            webView.goBack()
 
         } else {
 
-            super.onBackPressed();
+            super.onBackPressed()
         }
     }
 
 
     override fun onDestroy() {
 
-        webView.destroy();
+        webView.destroy()
 
-        super.onDestroy();
+        super.onDestroy()
     }
 }
