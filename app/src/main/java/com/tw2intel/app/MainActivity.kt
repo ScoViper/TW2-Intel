@@ -35,14 +35,6 @@ class MainActivity : Activity() {
         webView.webChromeClient = WebChromeClient()
         webView.webViewClient = WebViewClient()
 
-        val script = assets.open("tw2-intel.js").bufferedReader().use { it.readText() }
-        if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
-            WebViewCompat.addDocumentStartJavaScript(
-                webView,
-                script,
-                setOf("https://*.tribalwars2.com")
-            )
-        }
 
         if (savedInstanceState == null) {
             webView.loadUrl("https://en.tribalwars2.com/")
