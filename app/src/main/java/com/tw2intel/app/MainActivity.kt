@@ -14,6 +14,13 @@ class MainActivity : Activity() {
 
     private lateinit var webView: WebView
 
+    /*
+     * Converts single-finger movement over the TW2 map
+     * into mouse movement.
+     *
+     * This is the version that allowed the map to be
+     * dragged around correctly.
+     */
     private val touchMouseBridge = """
         (function() {
 
@@ -32,6 +39,7 @@ class MainActivity : Activity() {
             const DRAG_THRESHOLD = 8;
 
             function isInsideWindow(element) {
+
                 if (!element) return false;
 
                 return !!element.closest(
@@ -66,6 +74,10 @@ class MainActivity : Activity() {
                 const y = startY;
                 const h = window.innerHeight;
 
+                /*
+                 * Don't intercept the top and bottom
+                 * TW2 interface bars.
+                 */
                 if (y < 100) return false;
                 if (y > h - 120) return false;
 
@@ -75,27 +87,35 @@ class MainActivity : Activity() {
             function mouse(type, x, y, element) {
 
                 if (!element) {
-                    element = document.elementFromPoint(x, y);
+
+                    element =
+                        document.elementFromPoint(x, y);
                 }
 
                 if (!element) return;
 
-                const event = new MouseEvent(type, {
-                    bubbles: true,
-                    cancelable: true,
-                    view: window,
+                const event =
+                    new MouseEvent(
+                        type,
+                        {
+                            bubbles: true,
+                            cancelable: true,
+                            view: window,
 
-                    clientX: x,
-                    clientY: y,
+                            clientX: x,
+                            clientY: y,
 
-                    screenX: x,
-                    screenY: y,
+                            screenX: x,
+                            screenY: y,
 
-                    button: 0,
+                            button: 0,
 
-                    buttons:
-                        type === "mouseup" ? 0 : 1
-                });
+                            buttons:
+                                type === "mouseup"
+                                    ? 0
+                                    : 1
+                        }
+                    );
 
                 element.dispatchEvent(event);
             }
@@ -104,9 +124,15 @@ class MainActivity : Activity() {
                 "touchstart",
                 function(e) {
 
+                    /*
+                     * Two fingers belong to WebView
+                     * pinch zoom. Don't interfere.
+                     */
                     if (e.touches.length !== 1) {
+
                         mapTouch = false;
                         dragging = false;
+
                         return;
                     }
 
@@ -118,13 +144,16 @@ class MainActivity : Activity() {
                     lastX = startX;
                     lastY = startY;
 
-                    target = document.elementFromPoint(
-                        startX,
-                        startY
-                    );
+                    target =
+                        document.elementFromPoint(
+                            startX,
+                            startY
+                        );
 
                     dragging = false;
-                    mapTouch = isMapArea(target);
+
+                    mapTouch =
+                        isMapArea(target);
                 },
                 true
             );
@@ -136,20 +165,26 @@ class MainActivity : Activity() {
                     if (!mapTouch) return;
 
                     if (e.touches.length !== 1) {
+
                         mapTouch = false;
                         dragging = false;
+
                         return;
                     }
 
                     const t = e.touches[0];
 
-                    const dx = t.clientX - startX;
-                    const dy = t.clientY - startY;
+                    const dx =
+                        t.clientX - startX;
+
+                    const dy =
+                        t.clientY - startY;
 
                     if (
                         !dragging &&
-                        Math.sqrt(dx * dx + dy * dy) >
-                        DRAG_THRESHOLD
+                        Math.sqrt(
+                            dx * dx + dy * dy
+                        ) > DRAG_THRESHOLD
                     ) {
 
                         dragging = true;
@@ -187,7 +222,10 @@ class MainActivity : Activity() {
                 "touchend",
                 function(e) {
 
-                    if (mapTouch && dragging) {
+                    if (
+                        mapTouch &&
+                        dragging
+                    ) {
 
                         e.preventDefault();
 
@@ -213,7 +251,10 @@ class MainActivity : Activity() {
                 "touchcancel",
                 function() {
 
-                    if (mapTouch && dragging) {
+                    if (
+                        mapTouch &&
+                        dragging
+                    ) {
 
                         mouse(
                             "mouseup",
@@ -234,58 +275,148 @@ class MainActivity : Activity() {
     """.trimIndent()
 
 
+    /*
+     * Restore the viewport that gave us the
+     * large manual pinch-zoom range.
+     */
+    private val viewportFix = """
+        (function() {
+
+            function applyTW2Viewport() {
+
+                var viewport =
+                    document.querySelector(
+                        'meta[name="viewport"]'
+                    );
+
+                if (!viewport) {
+
+                    viewport =
+                        document.createElement(
+                            "meta"
+                        );
+
+                    viewport.name =
+                        "viewport";
+
+                    document.head.appendChild(
+                        viewport
+                    );
+                }
+
+                viewport.setAttribute(
+                    "content",
+                    "width=1920, " +
+                    "initial-scale=1.0, " +
+                    "minimum-scale=0.1, " +
+                    "maximum-scale=5.0, " +
+                    "user-scalable=yes"
+                );
+            }
+
+            /*
+             * Apply immediately and again while
+             * TW2 is constructing the page.
+             */
+            applyTW2Viewport();
+
+            setTimeout(
+                applyTW2Viewport,
+                500
+            );
+
+            setTimeout(
+                applyTW2Viewport,
+                1500
+            );
+
+            setTimeout(
+                applyTW2Viewport,
+                3000
+            );
+
+        })();
+    """.trimIndent()
+
+
     @SuppressLint("SetJavaScriptEnabled")
-    override fun onCreate(savedInstanceState: Bundle?) {
+    override fun onCreate(
+        savedInstanceState: Bundle?
+    ) {
 
-        super.onCreate(savedInstanceState)
+        super.onCreate(
+            savedInstanceState
+        );
 
-        webView = WebView(this)
-        setContentView(webView)
+        webView =
+            WebView(this);
+
+        setContentView(
+            webView
+        );
 
 
-        CookieManager.getInstance().apply {
+        /*
+         * Keep TW2 login/session cookies.
+         */
+        CookieManager
+            .getInstance()
+            .apply {
 
-            setAcceptCookie(true)
+                setAcceptCookie(
+                    true
+                );
 
-            setAcceptThirdPartyCookies(
-                webView,
-                true
-            )
-        }
+                setAcceptThirdPartyCookies(
+                    webView,
+                    true
+                );
+            };
 
 
         webView.settings.apply {
 
-            javaScriptEnabled = true
-            domStorageEnabled = true
-            databaseEnabled = true
+            javaScriptEnabled = true;
 
-            cacheMode = WebSettings.LOAD_DEFAULT
+            domStorageEnabled = true;
 
-            mediaPlaybackRequiresUserGesture = false
+            databaseEnabled = true;
 
-            allowFileAccess = false
-            allowContentAccess = false
+            cacheMode =
+                WebSettings.LOAD_DEFAULT;
+
+            mediaPlaybackRequiresUserGesture =
+                false;
+
+
+            allowFileAccess = false;
+
+            allowContentAccess = false;
 
 
             /*
-             * Desktop layout.
+             * Desktop WebView behaviour.
              */
-            useWideViewPort = true
-            loadWithOverviewMode = true
+            useWideViewPort = true;
+
+            loadWithOverviewMode = true;
 
 
             /*
-             * Keep normal pinch zoom working.
+             * IMPORTANT:
+             *
+             * Leave Android pinch zoom enabled.
              */
-            builtInZoomControls = true
-            displayZoomControls = false
-            setSupportZoom(true)
+            builtInZoomControls = true;
+
+            displayZoomControls = false;
+
+            setSupportZoom(true);
 
 
             /*
-             * Desktop Chrome user agent.
-             * This stops TW2 sending us to Google Play.
+             * Desktop Chrome UA prevents TW2
+             * redirecting us to the Android app.
              */
             userAgentString =
                 "Mozilla/5.0 " +
@@ -293,11 +424,12 @@ class MainActivity : Activity() {
                 "AppleWebKit/537.36 " +
                 "(KHTML, like Gecko) " +
                 "Chrome/140.0.0.0 " +
-                "Safari/537.36"
-        }
+                "Safari/537.36";
+        };
 
 
-        webView.webChromeClient = WebChromeClient()
+        webView.webChromeClient =
+            WebChromeClient();
 
 
         webView.webViewClient =
@@ -310,24 +442,39 @@ class MainActivity : Activity() {
                 ): Boolean {
 
                     val url =
-                        request?.url?.toString()
-                            ?: return false
+                        request
+                            ?.url
+                            ?.toString()
+                            ?: return false;
 
+
+                    /*
+                     * Don't let TW2 send us to
+                     * Google Play.
+                     */
                     if (
-                        url.startsWith("intent://") ||
-                        url.startsWith("market://") ||
+                        url.startsWith(
+                            "intent://"
+                        ) ||
+                        url.startsWith(
+                            "market://"
+                        ) ||
                         url.contains(
                             "play.google.com/store/apps/details"
                         )
                     ) {
-                        return true
+
+                        return true;
                     }
 
-                    return false
+
+                    return false;
                 }
 
 
-                @Deprecated("Deprecated in Java")
+                @Deprecated(
+                    "Deprecated in Java"
+                )
                 override fun shouldOverrideUrlLoading(
                     view: WebView?,
                     url: String?
@@ -336,17 +483,23 @@ class MainActivity : Activity() {
                     if (
                         url != null &&
                         (
-                            url.startsWith("intent://") ||
-                            url.startsWith("market://") ||
+                            url.startsWith(
+                                "intent://"
+                            ) ||
+                            url.startsWith(
+                                "market://"
+                            ) ||
                             url.contains(
                                 "play.google.com/store/apps/details"
                             )
                         )
                     ) {
-                        return true
+
+                        return true;
                     }
 
-                    return false
+
+                    return false;
                 }
 
 
@@ -358,7 +511,8 @@ class MainActivity : Activity() {
                     super.onPageFinished(
                         view,
                         url
-                    )
+                    );
+
 
                     if (
                         url?.contains(
@@ -367,49 +521,40 @@ class MainActivity : Activity() {
                     ) {
 
                         /*
-                         * Keep our working touchscreen
-                         * map dragging.
+                         * Restore the wide TW2
+                         * pinch-zoom range.
+                         */
+                        view?.evaluateJavascript(
+                            viewportFix,
+                            null
+                        );
+
+
+                        /*
+                         * Restore working map dragging.
                          */
                         view?.evaluateJavascript(
                             touchMouseBridge,
                             null
-                        )
-
-
-                        /*
-                         * TW2 is a JavaScript application,
-                         * so give the game time to appear
-                         * before applying WebView zoom-out.
-                         */
-                        view?.postDelayed({
-
-                            /*
-                             * These are real WebView
-                             * zoom-out steps — equivalent
-                             * to moving the WebView toward
-                             * its zoomed-out state.
-                             */
-                            repeat(5) {
-                                view.zoomOut()
-                            }
-
-                        }, 3000)
+                        );
                     }
                 }
-            }
+            };
 
 
-        if (savedInstanceState == null) {
+        if (
+            savedInstanceState == null
+        ) {
 
             webView.loadUrl(
                 "https://en.tribalwars2.com/"
-            )
+            );
 
         } else {
 
             webView.restoreState(
                 savedInstanceState
-            )
+            );
         }
     }
 
@@ -418,32 +563,38 @@ class MainActivity : Activity() {
         outState: Bundle
     ) {
 
-        webView.saveState(outState)
+        webView.saveState(
+            outState
+        );
 
         super.onSaveInstanceState(
             outState
-        )
+        );
     }
 
 
-    @Deprecated("Deprecated in Java")
+    @Deprecated(
+        "Deprecated in Java"
+    )
     override fun onBackPressed() {
 
-        if (webView.canGoBack()) {
+        if (
+            webView.canGoBack()
+        ) {
 
-            webView.goBack()
+            webView.goBack();
 
         } else {
 
-            super.onBackPressed()
+            super.onBackPressed();
         }
     }
 
 
     override fun onDestroy() {
 
-        webView.destroy()
+        webView.destroy();
 
-        super.onDestroy()
+        super.onDestroy();
     }
 }
