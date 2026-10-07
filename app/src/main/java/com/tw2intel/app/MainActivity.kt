@@ -237,75 +237,18 @@ class MainActivity : Activity() {
     """.trimIndent()
 
 
-    /*
-     * TW2 viewport.
-     *
-     * Starting scale is now 0.5 so the game starts
-     * zoomed further out instead of requiring you
-     * to pinch it out manually every time.
-     */
-    private val viewportFix = """
-        (function() {
-
-            function applyTW2Viewport() {
-
-                var viewport =
-                    document.querySelector(
-                        'meta[name="viewport"]'
-                    );
-
-                if (!viewport) {
-
-                    viewport =
-                        document.createElement("meta");
-
-                    viewport.name = "viewport";
-
-                    document.head.appendChild(viewport);
-                }
-
-                viewport.setAttribute(
-                    "content",
-                    "width=1920, " +
-                    "initial-scale=0.5, " +
-                    "minimum-scale=0.1, " +
-                    "maximum-scale=5.0, " +
-                    "user-scalable=yes"
-                );
-            }
-
-            applyTW2Viewport();
-
-            setTimeout(applyTW2Viewport, 500);
-            setTimeout(applyTW2Viewport, 1500);
-            setTimeout(applyTW2Viewport, 3000);
-
-        })();
-    """.trimIndent()
-
-
     @SuppressLint("SetJavaScriptEnabled")
-    override fun onCreate(
-        savedInstanceState: Bundle?
-    ) {
+    override fun onCreate(savedInstanceState: Bundle?) {
 
         super.onCreate(savedInstanceState)
 
         webView = WebView(this)
-
         setContentView(webView)
 
-
         CookieManager.getInstance().apply {
-
             setAcceptCookie(true)
-
-            setAcceptThirdPartyCookies(
-                webView,
-                true
-            )
+            setAcceptThirdPartyCookies(webView, true)
         }
-
 
         webView.settings.apply {
 
@@ -313,33 +256,28 @@ class MainActivity : Activity() {
             domStorageEnabled = true
             databaseEnabled = true
 
-            cacheMode =
-                WebSettings.LOAD_DEFAULT
+            cacheMode = WebSettings.LOAD_DEFAULT
 
-            mediaPlaybackRequiresUserGesture =
-                false
+            mediaPlaybackRequiresUserGesture = false
 
             allowFileAccess = false
             allowContentAccess = false
 
-
             /*
-             * Desktop page behaviour.
+             * Let WebView calculate the desktop page width.
              */
             useWideViewPort = true
             loadWithOverviewMode = true
 
-
             /*
-             * Keep pinch zoom enabled.
+             * Keep manual pinch zoom available.
              */
             builtInZoomControls = true
             displayZoomControls = false
             setSupportZoom(true)
 
-
             /*
-             * Desktop user agent prevents TW2
+             * Desktop browser UA prevents TW2
              * redirecting to Google Play.
              */
             userAgentString =
@@ -351,14 +289,10 @@ class MainActivity : Activity() {
                 "Safari/537.36"
         }
 
-
-        webView.webChromeClient =
-            WebChromeClient()
-
+        webView.webChromeClient = WebChromeClient()
 
         webView.webViewClient =
             object : WebViewClient() {
-
 
                 override fun shouldOverrideUrlLoading(
                     view: WebView?,
@@ -411,11 +345,7 @@ class MainActivity : Activity() {
                     url: String?
                 ) {
 
-                    super.onPageFinished(
-                        view,
-                        url
-                    )
-
+                    super.onPageFinished(view, url)
 
                     if (
                         url?.contains(
@@ -424,22 +354,33 @@ class MainActivity : Activity() {
                     ) {
 
                         /*
-                         * Apply TW2 viewport.
-                         */
-                        view?.evaluateJavascript(
-                            viewportFix,
-                            null
-                        )
-
-
-                        /*
-                         * Keep our working touchscreen
+                         * Keep the working touchscreen
                          * map dragging.
                          */
                         view?.evaluateJavascript(
                             touchMouseBridge,
                             null
                         )
+
+                        /*
+                         * Allow TW2 to finish drawing,
+                         * then zoom the actual WebView out.
+                         *
+                         * This is different from changing
+                         * the HTML viewport.
+                         */
+                        view?.postDelayed({
+
+                            /*
+                             * 60% is our first target.
+                             *
+                             * This should put us much closer
+                             * to the manually zoomed-out
+                             * screenshot.
+                             */
+                            view.setInitialScale(60)
+
+                        }, 1500)
                     }
                 }
             }
@@ -466,9 +407,7 @@ class MainActivity : Activity() {
 
         webView.saveState(outState)
 
-        super.onSaveInstanceState(
-            outState
-        )
+        super.onSaveInstanceState(outState)
     }
 
 
