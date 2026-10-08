@@ -5883,4 +5883,43 @@ learnRequest = function(msg) {
         console.log('[TW2 Spy Capture]', record);
     }
 };
+   // View saved spy capture on mobile
+window.showTW2SpyCapture = function() {
+    const saved = localStorage.getItem('tw2Intel.spyCapture');
+    const records = saved ? JSON.parse(saved) : [];
+
+    const output = document.createElement('textarea');
+    output.value = JSON.stringify(records, null, 2);
+    output.readOnly = true;
+    output.style.cssText =
+        'position:fixed;top:10%;left:5%;width:90%;height:65%;' +
+        'z-index:2147483647;background:#111;color:#fff;' +
+        'font-size:14px;padding:10px;';
+
+    const close = document.createElement('button');
+    close.textContent = 'CLOSE';
+    close.style.cssText =
+        'position:fixed;top:76%;left:5%;z-index:2147483647;' +
+        'padding:12px;background:#333;color:white;';
+    close.onclick = () => {
+        output.remove();
+        close.remove();
+    };
+
+    document.body.append(output, close);
+};
+
+const spyButton = document.createElement('button');
+spyButton.textContent = '🕵️ SPY CAPTURE';
+spyButton.style.cssText =
+    'position:fixed;bottom:65px;left:10px;z-index:2147483646;' +
+    'padding:10px;background:#273b48;color:white;';
+spyButton.onclick = window.showTW2SpyCapture;
+if (document.body) {
+    document.body.appendChild(spyButton);
+} else {
+    document.addEventListener('DOMContentLoaded', () => {
+        document.body.appendChild(spyButton);
+    }, { once: true });
+}
 })();
