@@ -5884,13 +5884,21 @@ learnRequest = function(msg) {
 
         console.log('[TW2 Spy Capture]', record);
     }
-    // Learn the relocation request shape without copying session credentials.
-    if (/relocat/i.test(msg.type) && /send|command|move/i.test(msg.type)) {
+    // Capture possible relocation requests without storing session credentials.
+    // The game may use a generic command name rather than "relocate".
+    if (/relocat|command\/send|sendcommand|unit.*(move|transfer)|transfer.*unit/i.test(msg.type)) {
         const d = clone(msg.data);
-        delete d.tokenEmit; delete d.userAgent;
+        function redact(v) {
+            if (!v || typeof v !== 'object') return;
+            for (const k of Object.keys(v)) {
+                if (/token|session|auth|cookie|password|secret|useragent/i.test(k)) delete v[k];
+                else redact(v[k]);
+            }
+        }
+        redact(d);
         const history = loadJSON('tw2Intel.relocationExamples', []);
         history.push({type:msg.type, data:d, time:new Date().toISOString()});
-        saveJSON('tw2Intel.relocationExamples', history.slice(-5));
+        saveJSON('tw2Intel.relocationExamples', history.slice(-12));
         if (typeof tw2NukeRender === 'function') tw2NukeRender();
     }
 };
@@ -5923,8 +5931,8 @@ window.showTW2SpyCapture = function() {
 const spyButton = document.createElement('button');
 spyButton.textContent = '🕵️ SPY CAPTURE';
 spyButton.style.cssText =
-    'position:fixed;bottom:65px;left:10px;z-index:2147483646;' +
-    'padding:10px;background:#273b48;color:white;';
+    'position:fixed;bottom:108px;left:10px;z-index:2147483646;' +
+    'padding:7px 10px;background:#273b48;color:white;font:12px Arial;';
 spyButton.onclick = window.showTW2SpyCapture;
 if (document.body) {
     document.body.appendChild(spyButton);
@@ -5987,7 +5995,7 @@ function tw2ScoutTargets() {
     return [...targets.values()];
 }
 function tw2ScoutRequestTemplates() {
-    const records = window.tw2SpyCapture || loadJSON('tw2Intel.spyCapture', []);
+    const records = [...(loadJSON('tw2Intel.spyCapture', []) || []), ...(window.tw2SpyCapture || [])];
     return records.filter(r => r.type === 'Scouting/sendCommand' &&
         r.data && Number.isSafeInteger(Number(r.data.startVillage)) &&
         Number.isSafeInteger(Number(r.data.targetVillage)) &&
@@ -6124,8 +6132,8 @@ function tw2ScoutBoot() {
         const button=document.createElement('button');
         button.id='tw2-scout-open';
         button.textContent='🕵️ SCOUT AUTO';
-        button.style.cssText='position:fixed;bottom:65px;left:155px;z-index:2147483646;'+
-            'padding:10px;background:#273b48;color:white';
+        button.style.cssText='position:fixed;bottom:108px;left:143px;z-index:2147483646;'+
+            'padding:7px 10px;background:#273b48;color:white;font:12px Arial';
         button.onclick=()=>{
             const panel=document.getElementById('tw2-scout-planner');
             if (panel) panel.style.display='block';
@@ -6158,28 +6166,58 @@ function tw2NukeRender() {
     if (!panel || panel.style.display === 'none') return;
     const examples = loadJSON('tw2Intel.relocationExamples', []);
     const last = examples[examples.length-1];
-    panel.innerHTML = '<b>⚔️ NUKE BUILDER</b> <button id="tw2-nuke-close">×</button>'+
+    panel.innerHTML = '<div id="tw2-nuke-handle" style="cursor:move;touch-action:none;padding:6px 3px;background:#283440;margin:-4px -4px 7px"><b>⚔️ NUKE BUILDER</b> <button id="tw2-nuke-close" style="float:right">×</button></div>'+
         '<p>Destination: <b>'+TW2_NUKE_DEST+'</b></p>'+
         '<p>Sources: ALL owned villages except destination</p>'+
         '<p>Target: maximum 600 rams, remaining provisions axemen. No source reserves.</p>'+
         '<p>Relocation: <b>OFF — no troops will move</b></p>'+
-        '<p>Relocation requests learned: <b>'+examples.length+'</b></p>'+
+        '<p>Possible relocation commands captured: <b>'+examples.length+'</b> (not yet verified)</p>'+
         (last ? '<p>Last request type: '+esc(last.type)+'</p>' :
-        '<p>To learn the correct game request, manually relocate a small number of axemen once.</p>')+
+        '<p>Capture is diagnostic only. No automatic relocation is enabled.</p>')+
         '<p style="opacity:.8">Full automation also requires verified owned-village troops, provisions, and destination capacity. These are not available in this file yet.</p>';
     panel.querySelector('#tw2-nuke-close').onclick = () => panel.style.display='none';
+    if (!panel.dataset.dragReady) {
+        panel.dataset.dragReady = '1';
+        let active = null;
+        panel.addEventListener('pointerdown', e => {
+            if (!e.target.closest('#tw2-nuke-handle') || e.target.closest('button')) return;
+            const r = panel.getBoundingClientRect();
+            active = {id:e.pointerId, dx:e.clientX-r.left, dy:e.clientY-r.top};
+            panel.setPointerCapture(e.pointerId);
+            e.preventDefault();
+        });
+        panel.addEventListener('pointermove', e => {
+            if (!active || e.pointerId !== active.id) return;
+            const x = Math.max(0,Math.min(window.innerWidth-80,e.clientX-active.dx));
+            const y = Math.max(0,Math.min(window.innerHeight-45,e.clientY-active.dy));
+            panel.style.left=x+'px'; panel.style.top=y+'px'; panel.style.bottom='auto'; panel.style.right='auto';
+            e.preventDefault();
+        });
+        function finish(e) {
+            if (!active || e.pointerId !== active.id) return;
+            active=null;
+            saveJSON('tw2Intel.nukePosition',{left:parseInt(panel.style.left,10)||0,top:parseInt(panel.style.top,10)||0});
+        }
+        panel.addEventListener('pointerup',finish);
+        panel.addEventListener('pointercancel',finish);
+    }
 }
 function tw2NukeBoot() {
     if (!document.body || document.getElementById('tw2-nuke-open')) return;
     const button = document.createElement('button');
     button.id='tw2-nuke-open'; button.textContent='⚔️ NUKE BUILDER';
-    button.style.cssText='position:fixed;bottom:20px;left:10px;z-index:2147483646;padding:9px;background:#473b28;color:white';
+    button.style.cssText='position:fixed;bottom:72px;left:10px;z-index:2147483646;padding:7px 10px;background:#473b28;color:white;font:12px Arial';
     button.onclick=()=>{
         let panel=document.getElementById('tw2-nuke-panel');
         if (!panel) {
             panel=document.createElement('div'); panel.id='tw2-nuke-panel';
-            panel.style.cssText='position:fixed;bottom:110px;right:10px;z-index:2147483645;background:#141d25;color:white;border:1px solid #9a8250;padding:10px;max-width:310px;max-height:45vh;overflow:auto;font:12px Arial,sans-serif';
+            panel.style.cssText='position:fixed;top:115px;left:15px;z-index:2147483647;background:#141d25;color:white;border:1px solid #9a8250;padding:10px;width:265px;max-width:calc(100vw - 30px);max-height:55vh;overflow:auto;font:12px Arial,sans-serif;box-sizing:border-box';
             document.body.appendChild(panel);
+            const saved = loadJSON('tw2Intel.nukePosition',null);
+            if (saved && Number.isFinite(Number(saved.left)) && Number.isFinite(Number(saved.top))) {
+                panel.style.left=Math.max(0,Math.min(window.innerWidth-80,Number(saved.left)))+'px';
+                panel.style.top=Math.max(0,Math.min(window.innerHeight-45,Number(saved.top)))+'px';
+            }
         }
         panel.style.display='block'; tw2NukeRender();
     };
