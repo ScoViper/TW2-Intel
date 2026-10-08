@@ -6172,22 +6172,40 @@ function tw2NukeObserveResponse(message) {
     if (!TW2_NUKE_HINT.test(type)) return;
     const data = message.data;
     if (!data || typeof data !== 'object') return;
-    // Record only structural paths, not sensitive session values or arbitrary payloads.
+    // Read-only, bounded diagnostics: expose relevant unit counts and provision
+    // fields while excluding authentication/session and unrelated game data.
     const fields = [];
     const seen = new WeakSet();
+    const sensitive = /token|auth|session|cookie|password|secret|useragent|email|chat/i;
+    const relevant = /unit|axe|ram|provision|population|capacity|village|troop|army|farm|housing/i;
+    function describe(value) {
+        if (value === null) return 'null';
+        if (typeof value === 'number' || typeof value === 'boolean') return JSON.stringify(value);
+        if (typeof value === 'string') return '(string)';
+        return Array.isArray(value) ? '(array)' : '(object)';
+    }
     function walk(obj,path,depth) {
-        if (!obj || typeof obj !== 'object' || depth > 4 || seen.has(obj) || fields.length >= 65) return;
+        if (!obj || typeof obj !== 'object' || depth > 7 || seen.has(obj) || fields.length >= 110) return;
         seen.add(obj);
-        for (const [key,value] of Object.entries(obj).slice(0,30)) {
-            if (/token|auth|session|cookie|password|secret|useragent/i.test(key)) continue;
+        for (const [key,value] of Object.entries(obj).slice(0,45)) {
+            if (sensitive.test(key) || fields.length >= 110) continue;
             const next = path ? path+'.'+key : key;
-            if (/unit|axe|ram|provision|population|capacity|village|troop|army/i.test(key)) fields.push(next+' ('+(Array.isArray(value)?'array':typeof value)+')');
-            if (value && typeof value === 'object') walk(Array.isArray(value)?value[0]:value,next,depth+1);
+            const interesting = relevant.test(key) || relevant.test(path);
+            if (interesting && (value === null || typeof value !== 'object')) {
+                fields.push(next+' = '+describe(value));
+            } else if (relevant.test(key) && value && typeof value === 'object') {
+                fields.push(next+' '+describe(value));
+            }
+            if (value && typeof value === 'object') {
+                if (Array.isArray(value)) {
+                    for (let i=0;i<Math.min(value.length,4);i++) walk(value[i],next+'['+i+']',depth+1);
+                } else walk(value,next,depth+1);
+            }
         }
     }
     walk(data,'',0);
     if (!fields.length) return;
-    TW2_NUKE_OBSERVATIONS.set(type,{type,fields:fields.slice(0,40),time:new Date().toISOString()});
+    TW2_NUKE_OBSERVATIONS.set(type,{type,fields:fields.slice(0,100),time:new Date().toISOString()});
     if (TW2_NUKE_OBSERVATIONS.size > 20) TW2_NUKE_OBSERVATIONS.delete(TW2_NUKE_OBSERVATIONS.keys().next().value);
     const status = document.getElementById('tw2-nuke-observed');
     if (status) status.textContent='Relevant response types observed: '+TW2_NUKE_OBSERVATIONS.size;
