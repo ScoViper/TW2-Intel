@@ -5948,4 +5948,180 @@ scan = function(obj, depth) {
 
     return tw2NativeScan(obj, depth);
 };
+
+
+/* ============================================================
+   ENEMY SCOUT PLANNER — SAFE, OPT-IN
+   Uses only confirmed enemy attack origins. Never guesses
+   available spy counts, ownership, or session credentials.
+   ============================================================ */
+const TW2_SCOUT_KEY = 'tw2Intel.scoutPlanner';
+const tw2ScoutPrefs = loadJSON(TW2_SCOUT_KEY, {
+    enabled:false, maxMissions:7
+});
+const tw2ScoutLive = {
+    sources:new Map(), sent:new Set(), busy:false,
+    last:'Waiting for confirmed source spy availability'
+};
+function tw2ScoutTargets() {
+    const targets = new Map();
+    for (const attack of getAttacks()) {
+        const id = Number(attack.origin_village_id);
+        if (!Number.isSafeInteger(id) || id <= 0) continue;
+        if (!targets.has(id)) targets.set(id, {
+            id, name:displayOrigin(attack), attacker:displayCharacter(attack),
+            x:Number(attack.origin_x), y:Number(attack.origin_y)
+        });
+    }
+    return [...targets.values()];
+}
+function tw2ScoutRequestTemplates() {
+    const records = window.tw2SpyCapture || [];
+    return records.filter(r => r.type === 'Scouting/sendCommand' &&
+        r.data && Number.isSafeInteger(Number(r.data.startVillage)) &&
+        Number.isSafeInteger(Number(r.data.targetVillage)) &&
+        Number(r.data.spys) === 1 &&
+        (r.data.type === 'buildings' || r.data.type === 'units'));
+}
+function tw2ScoutSourceFromLive(obj) {
+    // Only accept an explicit AVAILABLE spy count paired with a village ID.
+    // Generic "spys"/"spies" values can mean total or already sent.
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return;
+    const village = Number(obj.village_id ?? obj.villageId);
+    const available = obj.availableSpies ?? obj.available_spies ??
+        obj.spiesAvailable ?? obj.spies_available;
+    if (!Number.isSafeInteger(village) || village <= 0 ||
+        !Number.isSafeInteger(Number(available)) || Number(available) < 0) return;
+    tw2ScoutLive.sources.set(village, {
+        available:Number(available),
+        x:Number(obj.x), y:Number(obj.y), updated:Date.now()
+    });
+}
+const tw2ScoutOriginalScan = scan;
+scan = function(obj, depth) {
+    tw2ScoutSourceFromLive(obj);
+    return tw2ScoutOriginalScan(obj, depth);
+};
+function tw2ScoutDistance(source, target) {
+    if (![source.x,source.y,target.x,target.y].every(Number.isFinite))
+        return Infinity;
+    return Math.hypot(source.x-target.x, source.y-target.y);
+}
+async function tw2ScoutCycle() {
+    if (!tw2ScoutPrefs.enabled || tw2ScoutLive.busy || !S.worker || !S.tokenEmit) return;
+    tw2ScoutLive.busy = true;
+    try {
+        const templates = tw2ScoutRequestTemplates();
+        const targets = tw2ScoutTargets();
+        if (!templates.length) {
+            tw2ScoutLive.last = 'Waiting for a learned manual scouting request';
+            return;
+        }
+        const sources = [...tw2ScoutLive.sources.entries()]
+            .filter(([id,s]) => s.available > 0 && Date.now()-s.updated < 30000 &&
+                templates.some(t => Number(t.data.startVillage) === id));
+        if (!sources.length) {
+            tw2ScoutLive.last = 'Paused: no verified available spies at a learned source';
+            return;
+        }
+        let sent = 0;
+        for (const target of targets) {
+            if (sent >= Math.min(7,Math.max(1,Number(tw2ScoutPrefs.maxMissions)||7))) break;
+            if (tw2ScoutLive.sent.has(target.id)) continue;
+            const ranked = sources.filter(([id,s]) => s.available > 0 && id !== target.id)
+                .sort((a,b) => tw2ScoutDistance(a[1],target)-tw2ScoutDistance(b[1],target));
+            if (!ranked.length) break;
+            const [sourceId, source] = ranked[0];
+            const templatesForSource = templates.filter(t => Number(t.data.startVillage) === sourceId);
+            const types = ['buildings','units'];
+            const type = types[sent % 2];
+            const template = templatesForSource.find(t => t.data.type === type);
+            if (!template) {
+                tw2ScoutLive.last = 'Paused: no learned '+type+' scouting request for source '+sourceId;
+                break;
+            }
+            const data = clone(template.data);
+            data.startVillage = sourceId;
+            data.targetVillage = target.id;
+            data.spys = 1;
+            if (S.tokenEmit) data.tokenEmit = S.tokenEmit;
+            if (S.userAgent) data.userAgent = S.userAgent;
+            const response = await send('Scouting/sendCommand',data,12000);
+            if (response?.error) {
+                tw2ScoutLive.last = 'Server rejected scouting request; stopped';
+                break;
+            }
+            source.available -= 1;
+            tw2ScoutLive.sent.add(target.id);
+            sent++;
+            tw2ScoutLive.last = 'Sent '+sent+' verified enemy scouting mission(s)';
+        }
+    } catch(e) {
+        tw2ScoutLive.last = 'Paused: '+String(e.message || e);
+    } finally {
+        tw2ScoutLive.busy = false;
+        tw2ScoutRender();
+    }
+}
+function tw2ScoutRender() {
+    if (!document.body) return;
+    let panel = document.getElementById('tw2-scout-planner');
+    if (!panel) {
+        panel = document.createElement('div');
+        panel.id = 'tw2-scout-planner';
+        panel.style.cssText = 'position:fixed;bottom:110px;left:10px;z-index:2147483645;'+
+            'background:#141d25;color:white;border:1px solid #70869a;'+
+            'padding:10px;max-width:310px;max-height:45vh;overflow:auto;'+
+            'font:12px Arial,sans-serif;display:none';
+        document.body.appendChild(panel);
+    }
+    if (panel.style.display === 'none') return;
+    const targets = tw2ScoutTargets();
+    panel.innerHTML = '<b>🕵️ ENEMY SCOUT PLANNER</b> '+
+        '<button id="tw2-scout-close">×</button><p>Confirmed enemy origins: '+targets.length+
+        '</p><p>Automatic dispatch: <b>'+(tw2ScoutPrefs.enabled?'ON':'OFF')+'</b></p>'+
+        '<p>'+esc(tw2ScoutLive.last)+'</p>'+
+        '<p>Up to 7 single-spy missions; buildings/units alternate. '+
+        'Only confirmed available spies and learned source requests are used.</p>'+
+        '<button id="tw2-scout-toggle">'+(tw2ScoutPrefs.enabled?'Disable':'Enable')+' auto scout</button> '+
+        '<button id="tw2-scout-check">Check now</button>'+
+        '<p style="opacity:.8">Enemy origins only; no friendly village targeting. '+
+        'Unknown availability always blocks dispatch.</p>';
+    panel.querySelector('#tw2-scout-close').onclick=()=>panel.style.display='none';
+    panel.querySelector('#tw2-scout-toggle').onclick=()=>{
+        tw2ScoutPrefs.enabled=!tw2ScoutPrefs.enabled;
+        saveJSON(TW2_SCOUT_KEY,tw2ScoutPrefs);
+        tw2ScoutRender();
+        if (tw2ScoutPrefs.enabled) tw2ScoutCycle();
+    };
+    panel.querySelector('#tw2-scout-check').onclick=()=>tw2ScoutCycle();
+}
+function tw2ScoutBoot() {
+    if (!document.body) return;
+    if (!document.getElementById('tw2-scout-open')) {
+        const button=document.createElement('button');
+        button.id='tw2-scout-open';
+        button.textContent='🕵️ SCOUT AUTO';
+        button.style.cssText='position:fixed;bottom:65px;left:155px;z-index:2147483646;'+
+            'padding:10px;background:#273b48;color:white';
+        button.onclick=()=>{
+            const panel=document.getElementById('tw2-scout-planner');
+            if (panel) panel.style.display='block';
+            else {
+                const holder=document.createElement('div');
+                holder.id='tw2-scout-planner';
+                holder.style.cssText='position:fixed;bottom:110px;left:10px;z-index:2147483645;'+
+                    'background:#141d25;color:white;border:1px solid #70869a;padding:10px;'+
+                    'max-width:310px;max-height:45vh;overflow:auto;font:12px Arial,sans-serif';
+                document.body.appendChild(holder);
+            }
+            tw2ScoutRender();
+        };
+        document.body.appendChild(button);
+    }
+}
+if (document.body) tw2ScoutBoot();
+else document.addEventListener('DOMContentLoaded',tw2ScoutBoot,{once:true});
+setInterval(tw2ScoutCycle,60000);
+
 })();
