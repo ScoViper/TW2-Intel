@@ -5857,5 +5857,30 @@ console.log(
     'color:#00ff88;font-weight:bold'
 );
 
+// Capture manual spy mission requests
+window.tw2SpyCapture = [];
 
+const originalLearnRequest = learnRequest;
+
+learnRequest = function(msg) {
+    originalLearnRequest(msg);
+
+    if (!msg || typeof msg.type !== 'string') return;
+
+    if (/spy|scout|espionage/i.test(msg.type)) {
+        const record = {
+            type: msg.type,
+            data: clone(msg.data),
+            time: new Date().toISOString()
+        };
+
+        window.tw2SpyCapture.push(record);
+        localStorage.setItem(
+            'tw2Intel.spyCapture',
+            JSON.stringify(window.tw2SpyCapture)
+        );
+
+        console.log('[TW2 Spy Capture]', record);
+    }
+};
 })();
