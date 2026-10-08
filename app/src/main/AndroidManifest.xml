@@ -5,7 +5,8 @@
 
     <application
         android:theme="@style/AppTheme"
-        android:label="TW2 Intel"
+        android:label="TW2 Intelligence"
+android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="false">
 
         <activity
