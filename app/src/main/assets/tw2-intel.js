@@ -5922,4 +5922,30 @@ if (document.body) {
         document.body.appendChild(spyButton);
     }, { once: true });
 }
+// Capture scouting report response types safely
+const tw2NativeScan = scan;
+
+scan = function(obj, depth) {
+    if (
+        obj &&
+        typeof obj === 'object' &&
+        typeof obj.type === 'string' &&
+        /scout|spy|report/i.test(obj.type)
+    ) {
+        const captures = JSON.parse(
+            localStorage.getItem('tw2Intel.reportTypes') || '[]'
+        );
+
+        if (!captures.includes(obj.type)) {
+            captures.push(obj.type);
+            localStorage.setItem(
+                'tw2Intel.reportTypes',
+                JSON.stringify(captures)
+            );
+            console.log('[TW2 Report Type]', obj.type);
+        }
+    }
+
+    return tw2NativeScan(obj, depth);
+};
 })();
