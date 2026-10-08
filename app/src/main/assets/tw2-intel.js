@@ -788,6 +788,7 @@ function receive(msg) {
         }
     }
 
+    tw2NukeObserveResponse(msg);
     scan(msg,0);
     render();
 }
@@ -6161,6 +6162,50 @@ setInterval(tw2ScoutCycle,60000);
    can be verified. No guessed game commands are sent.
    ============================================================ */
 const TW2_NUKE_DEST = 'F.ScoV.01';
+
+// Passive response diagnostics. Never invent troop totals or send commands.
+const TW2_NUKE_OBSERVATIONS = new Map();
+const TW2_NUKE_HINT = /village|army|unit|troop|provision|command|overview/i;
+function tw2NukeObserveResponse(message) {
+    if (!message || typeof message !== 'object') return;
+    const type = String(message.type || '');
+    if (!TW2_NUKE_HINT.test(type)) return;
+    const data = message.data;
+    if (!data || typeof data !== 'object') return;
+    // Record only structural paths, not sensitive session values or arbitrary payloads.
+    const fields = [];
+    const seen = new WeakSet();
+    function walk(obj,path,depth) {
+        if (!obj || typeof obj !== 'object' || depth > 4 || seen.has(obj) || fields.length >= 65) return;
+        seen.add(obj);
+        for (const [key,value] of Object.entries(obj).slice(0,30)) {
+            if (/token|auth|session|cookie|password|secret|useragent/i.test(key)) continue;
+            const next = path ? path+'.'+key : key;
+            if (/unit|axe|ram|provision|population|capacity|village|troop|army/i.test(key)) fields.push(next+' ('+(Array.isArray(value)?'array':typeof value)+')');
+            if (value && typeof value === 'object') walk(Array.isArray(value)?value[0]:value,next,depth+1);
+        }
+    }
+    walk(data,'',0);
+    if (!fields.length) return;
+    TW2_NUKE_OBSERVATIONS.set(type,{type,fields:fields.slice(0,40),time:new Date().toISOString()});
+    if (TW2_NUKE_OBSERVATIONS.size > 20) TW2_NUKE_OBSERVATIONS.delete(TW2_NUKE_OBSERVATIONS.keys().next().value);
+    const status = document.getElementById('tw2-nuke-observed');
+    if (status) status.textContent='Relevant response types observed: '+TW2_NUKE_OBSERVATIONS.size;
+}
+function tw2NukeShowObservations() {
+    const payload = [...TW2_NUKE_OBSERVATIONS.values()];
+    const area = document.createElement('textarea');
+    area.value = JSON.stringify(payload,null,2);
+    area.readOnly = true;
+    area.style.cssText='position:fixed;top:8%;left:5%;width:90%;height:75%;z-index:2147483647;background:#fff;color:#111;font:12px monospace';
+    const close = document.createElement('button');
+    close.textContent='Close';
+    close.style.cssText='position:fixed;top:84%;left:5%;z-index:2147483647;padding:10px';
+    close.onclick=()=>{area.remove();close.remove();};
+    document.body.append(area,close);
+    area.focus();area.select();
+}
+
 function tw2NukeRender() {
     const panel = document.getElementById('tw2-nuke-panel');
     if (!panel || panel.style.display === 'none') return;
@@ -6181,8 +6226,11 @@ function tw2NukeRender() {
             '<pre style="white-space:pre-wrap;overflow-wrap:anywhere;user-select:text;">'+
             esc(JSON.stringify(r.data || {},null,2))+'</pre></details>'
         ).join('') : '<p>No requests recorded yet.</p>')+
+        '<p id="tw2-nuke-observed">Relevant response types observed: '+TW2_NUKE_OBSERVATIONS.size+'</p>'+
+        '<button id="tw2-nuke-observe" type="button">View troop-data diagnostics</button> '+
         '<button id="tw2-nuke-copy" type="button">Copy captured details</button>'+ 
         '<p style="opacity:.8">These are candidate commands, not yet confirmed relocations. No automatic troop movement. Verified troop counts and provision capacity are still required.</p>';
+    panel.querySelector('#tw2-nuke-observe').onclick = tw2NukeShowObservations;
     panel.querySelector('#tw2-nuke-close').onclick = () => panel.style.display='none';
     panel.querySelector('#tw2-nuke-copy').onclick = () => {
         const safe = examples.slice(-4).map(r => ({type:r.type,time:r.time,data:r.data}));
