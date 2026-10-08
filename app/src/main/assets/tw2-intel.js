@@ -6174,8 +6174,28 @@ function tw2NukeRender() {
         '<p>Possible relocation commands captured: <b>'+examples.length+'</b> (not yet verified)</p>'+
         (last ? '<p>Last request type: '+esc(last.type)+'</p>' :
         '<p>Capture is diagnostic only. No automatic relocation is enabled.</p>')+
-        '<p style="opacity:.8">Full automation also requires verified owned-village troops, provisions, and destination capacity. These are not available in this file yet.</p>';
+        '<p><b>Captured request details (latest 4):</b></p>'+
+        (examples.length ? examples.slice(-4).reverse().map((r,i) =>
+            '<details style="margin:5px 0;border:1px solid #46515b;padding:5px"'+(i===0?' open':'')+'>'+ 
+            '<summary>'+esc(r.type)+' — '+esc(r.time || '')+'</summary>'+ 
+            '<pre style="white-space:pre-wrap;overflow-wrap:anywhere;user-select:text;">'+
+            esc(JSON.stringify(r.data || {},null,2))+'</pre></details>'
+        ).join('') : '<p>No requests recorded yet.</p>')+
+        '<button id="tw2-nuke-copy" type="button">Copy captured details</button>'+ 
+        '<p style="opacity:.8">These are candidate commands, not yet confirmed relocations. No automatic troop movement. Verified troop counts and provision capacity are still required.</p>';
     panel.querySelector('#tw2-nuke-close').onclick = () => panel.style.display='none';
+    panel.querySelector('#tw2-nuke-copy').onclick = () => {
+        const safe = examples.slice(-4).map(r => ({type:r.type,time:r.time,data:r.data}));
+        const output = JSON.stringify(safe,null,2);
+        const textarea = document.createElement('textarea');
+        textarea.value = output;
+        textarea.style.cssText = 'position:fixed;left:5%;top:10%;width:90%;height:75%;z-index:2147483647;background:#fff;color:#111;font:12px monospace';
+        document.body.appendChild(textarea);
+        textarea.focus(); textarea.select();
+        try { document.execCommand('copy'); } catch(e) {}
+        textarea.addEventListener('blur', () => textarea.remove(), {once:true});
+        panel.querySelector('#tw2-nuke-copy').textContent = 'Details selected/copied — tap outside to close';
+    };
     if (!panel.dataset.dragReady) {
         panel.dataset.dragReady = '1';
         let active = null;
