@@ -6173,6 +6173,7 @@ const TW2_NUKE_DEST = 'F.ScoV.01';
 const TW2_NUKE_DEST_ID = 578;
 const TW2_NUKE_UNITS = new Map();
 const TW2_NUKE_FARMS = new Map();
+const TW2_NUKE_AVAILABLE = new Map();
 // Farm screenshot 2026-10-09: 24,000 max, 7,376 used, 16,624 free.
 // Snapshot only; never use this number to authorise a relocation.
 const TW2_NUKE_FARM_SNAPSHOT = {max:24000, used:7376, free:16624};
@@ -6186,17 +6187,32 @@ function tw2NukeObserveResponse(message) {
     if (!TW2_NUKE_HINT.test(type)) return;
     const data = message.data;
     if (!data || typeof data !== 'object') return;
-    // Capture live farm occupancy from village batch payloads when available.
-    if (type === 'VillageBatch/villageData' && data && typeof data === 'object') {
+    // Capture available home units separately from stationed/support units.
+    if (type === 'VillageBatch/villageData') {
         for (const [key,entry] of Object.entries(data)) {
             const id = Number(key);
             if (!Number.isInteger(id) || !entry || typeof entry !== 'object') continue;
             const village = entry['Village/village'] || entry.village;
-            if (!village || typeof village !== 'object') continue;
-            const resources = village.resources || {};
-            const free = Number(resources.food);
-            if (Number.isFinite(free) && free >= 0) TW2_NUKE_FARMS.set(id,{free,time:Date.now(),source:'VillageBatch resources.food'});
+            const food = village?.resources?.food;
+            if (typeof food === 'number' && Number.isFinite(food) && food >= 0)
+                TW2_NUKE_FARMS.set(id,{free:food,time:Date.now(),source:'VillageBatch resources.food'});
+            const info = entry['Village/unitInfo'] || entry.unitInfo;
+            const units = info?.available_units || info?.availableUnits;
+            const read = key => {
+                const v = units?.[key];
+                if (typeof v === 'number') return Number.isFinite(v) && v >= 0 ? Math.floor(v) : null;
+                if (v && typeof v === 'object') {
+                    for (const k of ['available','count','amount'])
+                        if (typeof v[k] === 'number' && Number.isFinite(v[k]) && v[k] >= 0)
+                            return Math.floor(v[k]);
+                }
+                return null;
+            };
+            const axe = read('axe'), ram = read('ram');
+            if (axe !== null && ram !== null)
+                TW2_NUKE_AVAILABLE.set(id,{id,axe,ram,time:Date.now()});
         }
+        tw2NukeRender();
     }
     // UnitScreen/data exposes actual stationed, outgoing and incoming armies.
     // Capture separately from the bounded diagnostic field dump.
@@ -6282,38 +6298,22 @@ function tw2NukeRender() {
     const last = examples[examples.length-1];
     const rows = [...TW2_NUKE_UNITS.values()].sort((a,b)=>a.id-b.id);
     const dest = TW2_NUKE_UNITS.get(TW2_NUKE_DEST_ID);
-    const sourceRows = rows.filter(r=>r.id!==TW2_NUKE_DEST_ID && r.ownArmyFound);
-    const sourceAxe = sourceRows.reduce((n,r)=>n+r.axe,0);
+    const recent = r => r && Date.now()-r.time < 120000;
+    const availableRows = [...TW2_NUKE_AVAILABLE.values()].filter(r => r.id !== TW2_NUKE_DEST_ID && recent(r));
+    const sourceAxe = availableRows.reduce((n,r)=>n+r.axe,0);
     const seenIncomingAxe = dest ? dest.incomingAxe : 0;
     const farm = TW2_NUKE_FARM_SNAPSHOT;
     const liveFarm = TW2_NUKE_FARMS.get(TW2_NUKE_DEST_ID);
-    const recent = r => r && Date.now()-r.time < 120000;
-    const freshSources = sourceRows.filter(recent);
-    const allFresh = freshSources.length === sourceRows.length && recent(dest);
-    // Preview only: unit food costs must be verified from game configuration.
-    // Axemen use one provision; rams use five. If destination capacity is
-    // not fresh, do not present a relocation quantity as executable.
-    const foodBudget = recent(liveFarm) ? Math.floor(liveFarm.free) : null;
-    const incomingKnown = dest && recent(dest) ? dest.incomingAxe : null;
-    const projectedBudget = foodBudget === null || incomingKnown === null ? null : Math.max(0,foodBudget-incomingKnown);
-    const totalAxes = freshSources.reduce((n,r)=>n+r.axe,0);
-    const totalRams = freshSources.reduce((n,r)=>n+r.ram,0);
-    const ramNeeded = Math.max(0,600-(dest ? dest.ram : 0));
-    const planReady = allFresh && projectedBudget !== null && recent(liveFarm) && sourceRows.length>0;
-    let budget = planReady ? projectedBudget : 0;
-    const plannedRams = planReady ? Math.min(ramNeeded,totalRams,Math.floor(budget/5)) : 0;
-    budget -= plannedRams*5;
-    const plannedAxes = planReady ? Math.min(totalAxes,budget) : 0;
-    const planMessage = planReady
-        ? 'Provisional capacity preview: '+plannedAxes.toLocaleString()+' axes + '+plannedRams.toLocaleString()+' rams (not a send instruction).'
-        : 'Preview incomplete: open destination and source Unit Screens; live destination food capacity and all incoming movements need confirmation.';
+    // Coverage, inbound movements and capacity remain unverified: no executable plan.
+    const planMessage = 'Read-only: '+availableRows.length+' source villages with fresh available-unit counts; full source coverage and incoming movements still need verification.';
     const overview = '<div style="padding:7px;border:1px solid #64717a;margin:7px 0">'+
         '<b>READ-ONLY TROOP PREVIEW</b><br>'+
         'Farm screenshot: '+farm.used.toLocaleString()+' / '+farm.max.toLocaleString()+' provisions; '+farm.free.toLocaleString()+' free (snapshot, not live).<br>'+
-        (dest ? 'Destination stationed: '+dest.axe.toLocaleString()+' axes, '+dest.ram.toLocaleString()+' rams; captured incoming: '+seenIncomingAxe.toLocaleString()+' axes. ' : 'Destination UnitScreen not captured this session. ')+
-        'Captured source axes: '+sourceAxe.toLocaleString()+' (only opened villages).<br>'+
-        (recent(liveFarm) ? 'Live destination free provisions: '+liveFarm.free.toLocaleString()+' (recent village data).<br>' : 'Live destination farm capacity not captured.<br>')+
+        (dest ? 'Destination stationed: '+dest.axe.toLocaleString()+' axes, '+dest.ram.toLocaleString()+' rams; observed incoming: '+seenIncomingAxe.toLocaleString()+' axes (may be partial). ' : 'Destination UnitScreen not captured this session. ')+
+        'Captured available source axes: '+sourceAxe.toLocaleString()+' ('+availableRows.length+' villages; coverage unverified).<br>'+
+        (recent(liveFarm) ? 'Recent destination free provisions: '+liveFarm.free.toLocaleString()+' (not a relocation authorisation).<br>' : 'Live destination farm capacity not captured.<br>')+
         '<b>'+planMessage+'</b><br>Automatic relocation remains OFF.'+
+        (availableRows.length ? '<div style="max-height:125px;overflow:auto;margin-top:5px">'+availableRows.map(r=>'<div>Available village '+r.id+': '+r.axe.toLocaleString()+' axes / '+r.ram.toLocaleString()+' rams</div>').join('')+'</div>' : '')+
         (rows.length ? '<div style="max-height:125px;overflow:auto;margin-top:5px">'+rows.map(r=>
             '<div>Village '+r.id+': '+(r.ownArmyFound?r.axe.toLocaleString()+' axes / '+r.ram.toLocaleString()+' rams':'own stationed army not found')+
             (r.outgoingAxe?' | '+r.outgoingAxe.toLocaleString()+' axes already outbound to F.ScoV.01':'')+
