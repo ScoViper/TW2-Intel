@@ -6199,13 +6199,13 @@ function tw2NukeObserveResponse(message) {
                 TW2_NUKE_FARMS.set(id,{free:food,time:Date.now(),source:'VillageBatch resources.food'});
             const info = entry['Village/unitInfo'] || entry.unitInfo;
             const units = info?.available_units || info?.availableUnits;
-            // Only an explicitly available-unit field can authorise a count.
+            // Only available_units.in_town (or an explicit availability field) can authorise a count.
             // Stationed, total, support and outgoing figures are NOT availability.
             const read = key => {
                 const v = units?.[key];
                 if (typeof v === 'number') return Number.isSafeInteger(v) && v >= 0 ? v : null;
                 if (v && typeof v === 'object' && !Array.isArray(v)) {
-                    for (const k of ['available','available_units','availableUnits','available_count','availableCount']) {
+                    for (const k of ['in_town','available','available_units','availableUnits','available_count','availableCount']) {
                         if (Number.isSafeInteger(v[k]) && v[k] >= 0) return v[k];
                     }
                 }
