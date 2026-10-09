@@ -463,6 +463,14 @@ function learnRequest(msg) {
     const data =
         msg.data;
 
+    if (msg.type === 'Commands/sendCustomArmy' && data && data.type === 'relocate') {
+        const safe = {start_village:data.start_village,target_village:data.target_village,type:data.type,units:{axe:Number(data.units?.axe)||0,ram:Number(data.units?.ram)||0}};
+        const examples = loadJSON('tw2Intel.relocationExamples', []);
+        examples.push({type:msg.type,data:safe,time:new Date().toISOString()});
+        saveJSON('tw2Intel.relocationExamples',examples.slice(-12));
+        if (typeof tw2NukeRender === 'function') tw2NukeRender();
+    }
+
     if (
         data &&
         typeof data === 'object'
@@ -6164,6 +6172,7 @@ setInterval(tw2ScoutCycle,60000);
 const TW2_NUKE_DEST = 'F.ScoV.01';
 const TW2_NUKE_DEST_ID = 578;
 const TW2_NUKE_UNITS = new Map();
+const TW2_NUKE_FARMS = new Map();
 // Farm screenshot 2026-10-09: 24,000 max, 7,376 used, 16,624 free.
 // Snapshot only; never use this number to authorise a relocation.
 const TW2_NUKE_FARM_SNAPSHOT = {max:24000, used:7376, free:16624};
@@ -6177,6 +6186,18 @@ function tw2NukeObserveResponse(message) {
     if (!TW2_NUKE_HINT.test(type)) return;
     const data = message.data;
     if (!data || typeof data !== 'object') return;
+    // Capture live farm occupancy from village batch payloads when available.
+    if (type === 'VillageBatch/villageData' && data && typeof data === 'object') {
+        for (const [key,entry] of Object.entries(data)) {
+            const id = Number(key);
+            if (!Number.isInteger(id) || !entry || typeof entry !== 'object') continue;
+            const village = entry['Village/village'] || entry.village;
+            if (!village || typeof village !== 'object') continue;
+            const resources = village.resources || {};
+            const free = Number(resources.food);
+            if (Number.isFinite(free) && free >= 0) TW2_NUKE_FARMS.set(id,{free,time:Date.now(),source:'VillageBatch resources.food'});
+        }
+    }
     // UnitScreen/data exposes actual stationed, outgoing and incoming armies.
     // Capture separately from the bounded diagnostic field dump.
     if (type === 'UnitScreen/data') {
@@ -6265,12 +6286,34 @@ function tw2NukeRender() {
     const sourceAxe = sourceRows.reduce((n,r)=>n+r.axe,0);
     const seenIncomingAxe = dest ? dest.incomingAxe : 0;
     const farm = TW2_NUKE_FARM_SNAPSHOT;
+    const liveFarm = TW2_NUKE_FARMS.get(TW2_NUKE_DEST_ID);
+    const recent = r => r && Date.now()-r.time < 120000;
+    const freshSources = sourceRows.filter(recent);
+    const allFresh = freshSources.length === sourceRows.length && recent(dest);
+    // Preview only: unit food costs must be verified from game configuration.
+    // Axemen use one provision; rams use five. If destination capacity is
+    // not fresh, do not present a relocation quantity as executable.
+    const foodBudget = recent(liveFarm) ? Math.floor(liveFarm.free) : null;
+    const incomingKnown = dest && recent(dest) ? dest.incomingAxe : null;
+    const projectedBudget = foodBudget === null || incomingKnown === null ? null : Math.max(0,foodBudget-incomingKnown);
+    const totalAxes = freshSources.reduce((n,r)=>n+r.axe,0);
+    const totalRams = freshSources.reduce((n,r)=>n+r.ram,0);
+    const ramNeeded = Math.max(0,600-(dest ? dest.ram : 0));
+    const planReady = allFresh && projectedBudget !== null && recent(liveFarm) && sourceRows.length>0;
+    let budget = planReady ? projectedBudget : 0;
+    const plannedRams = planReady ? Math.min(ramNeeded,totalRams,Math.floor(budget/5)) : 0;
+    budget -= plannedRams*5;
+    const plannedAxes = planReady ? Math.min(totalAxes,budget) : 0;
+    const planMessage = planReady
+        ? 'Provisional capacity preview: '+plannedAxes.toLocaleString()+' axes + '+plannedRams.toLocaleString()+' rams (not a send instruction).'
+        : 'Preview incomplete: open destination and source Unit Screens; live destination food capacity and all incoming movements need confirmation.';
     const overview = '<div style="padding:7px;border:1px solid #64717a;margin:7px 0">'+
         '<b>READ-ONLY TROOP PREVIEW</b><br>'+
         'Farm screenshot: '+farm.used.toLocaleString()+' / '+farm.max.toLocaleString()+' provisions; '+farm.free.toLocaleString()+' free (snapshot, not live).<br>'+
         (dest ? 'Destination stationed: '+dest.axe.toLocaleString()+' axes, '+dest.ram.toLocaleString()+' rams; captured incoming: '+seenIncomingAxe.toLocaleString()+' axes. ' : 'Destination UnitScreen not captured this session. ')+
         'Captured source axes: '+sourceAxe.toLocaleString()+' (only opened villages).<br>'+
-        '<b>NO SEND PLAN:</b> Capacity and all incoming movements must be refreshed and verified first.'+
+        (recent(liveFarm) ? 'Live destination free provisions: '+liveFarm.free.toLocaleString()+' (recent village data).<br>' : 'Live destination farm capacity not captured.<br>')+
+        '<b>'+planMessage+'</b><br>Automatic relocation remains OFF.'+
         (rows.length ? '<div style="max-height:125px;overflow:auto;margin-top:5px">'+rows.map(r=>
             '<div>Village '+r.id+': '+(r.ownArmyFound?r.axe.toLocaleString()+' axes / '+r.ram.toLocaleString()+' rams':'own stationed army not found')+
             (r.outgoingAxe?' | '+r.outgoingAxe.toLocaleString()+' axes already outbound to F.ScoV.01':'')+
@@ -6279,7 +6322,7 @@ function tw2NukeRender() {
     panel.innerHTML = '<div id="tw2-nuke-handle" style="cursor:move;touch-action:none;padding:6px 3px;background:#283440;margin:-4px -4px 7px"><b>⚔️ NUKE BUILDER</b> <button id="tw2-nuke-close" style="float:right">×</button></div>'+
         '<p>Destination: <b>'+TW2_NUKE_DEST+'</b></p>'+
         '<p>Sources: ALL owned villages except destination</p>'+
-        '<p>Target: 600 rams total (already 807 at destination); prioritise axemen. No source reserves.</p>'+
+        '<p>Target: up to 600 rams total; prioritise axemen. No source reserves. Existing destination rams are counted when observed.</p>'+
         '<p>Relocation: <b>OFF — no troops will move</b></p>'+
         overview+
         '<p>Possible relocation commands captured: <b>'+examples.length+'</b> (not yet verified)</p>'+
