@@ -6162,6 +6162,11 @@ setInterval(tw2ScoutCycle,60000);
    can be verified. No guessed game commands are sent.
    ============================================================ */
 const TW2_NUKE_DEST = 'F.ScoV.01';
+const TW2_NUKE_DEST_ID = 578;
+const TW2_NUKE_UNITS = new Map();
+// Farm screenshot 2026-10-09: 24,000 max, 7,376 used, 16,624 free.
+// Snapshot only; never use this number to authorise a relocation.
+const TW2_NUKE_FARM_SNAPSHOT = {max:24000, used:7376, free:16624};
 
 // Passive response diagnostics. Never invent troop totals or send commands.
 const TW2_NUKE_OBSERVATIONS = new Map();
@@ -6172,6 +6177,31 @@ function tw2NukeObserveResponse(message) {
     if (!TW2_NUKE_HINT.test(type)) return;
     const data = message.data;
     if (!data || typeof data !== 'object') return;
+    // UnitScreen/data exposes actual stationed, outgoing and incoming armies.
+    // Capture separately from the bounded diagnostic field dump.
+    if (type === 'UnitScreen/data') {
+        const id = Number(data.village_id);
+        if (Number.isInteger(id) && id > 0) {
+            const ownId = 849040009; // Account ID confirmed in supplied UnitScreen captures.
+            const armies = Array.isArray(data.defArmies) ? data.defArmies : [];
+            const own = armies.filter(a => Number(a?.village?.character_id) === ownId && Number(a?.village?.village_id) === id);
+            const total = key => own.reduce((n,a) => n + (Number(a[key]) || 0),0);
+            const outgoing = (Array.isArray(data.outgoingArmies) ? data.outgoingArmies : []);
+            const incoming = (Array.isArray(data.incomingArmies) ? data.incomingArmies : []);
+            const sum = (arr,key,filter) => arr.filter(filter).reduce((n,a)=>n+(Number(a[key])||0),0);
+            TW2_NUKE_UNITS.set(id, {
+                id, axe:total('axe'), ram:total('ram'),
+                outgoingAxe:sum(outgoing,'axe',a=>Number(a?.village?.village_id)===TW2_NUKE_DEST_ID),
+                outgoingRam:sum(outgoing,'ram',a=>Number(a?.village?.village_id)===TW2_NUKE_DEST_ID),
+                incomingAxe:sum(incoming,'axe',()=>true),
+                incomingRam:sum(incoming,'ram',()=>true),
+                ownArmyFound:own.length>0,
+                time:Date.now()
+            });
+            if (TW2_NUKE_UNITS.size > 100) TW2_NUKE_UNITS.delete(TW2_NUKE_UNITS.keys().next().value);
+            tw2NukeRender();
+        }
+    }
     // Read-only, bounded diagnostics: expose relevant unit counts and provision
     // fields while excluding authentication/session and unrelated game data.
     const fields = [];
@@ -6229,11 +6259,29 @@ function tw2NukeRender() {
     if (!panel || panel.style.display === 'none') return;
     const examples = loadJSON('tw2Intel.relocationExamples', []);
     const last = examples[examples.length-1];
+    const rows = [...TW2_NUKE_UNITS.values()].sort((a,b)=>a.id-b.id);
+    const dest = TW2_NUKE_UNITS.get(TW2_NUKE_DEST_ID);
+    const sourceRows = rows.filter(r=>r.id!==TW2_NUKE_DEST_ID && r.ownArmyFound);
+    const sourceAxe = sourceRows.reduce((n,r)=>n+r.axe,0);
+    const seenIncomingAxe = dest ? dest.incomingAxe : 0;
+    const farm = TW2_NUKE_FARM_SNAPSHOT;
+    const overview = '<div style="padding:7px;border:1px solid #64717a;margin:7px 0">'+
+        '<b>READ-ONLY TROOP PREVIEW</b><br>'+
+        'Farm screenshot: '+farm.used.toLocaleString()+' / '+farm.max.toLocaleString()+' provisions; '+farm.free.toLocaleString()+' free (snapshot, not live).<br>'+
+        (dest ? 'Destination stationed: '+dest.axe.toLocaleString()+' axes, '+dest.ram.toLocaleString()+' rams; captured incoming: '+seenIncomingAxe.toLocaleString()+' axes. ' : 'Destination UnitScreen not captured this session. ')+
+        'Captured source axes: '+sourceAxe.toLocaleString()+' (only opened villages).<br>'+
+        '<b>NO SEND PLAN:</b> Capacity and all incoming movements must be refreshed and verified first.'+
+        (rows.length ? '<div style="max-height:125px;overflow:auto;margin-top:5px">'+rows.map(r=>
+            '<div>Village '+r.id+': '+(r.ownArmyFound?r.axe.toLocaleString()+' axes / '+r.ram.toLocaleString()+' rams':'own stationed army not found')+
+            (r.outgoingAxe?' | '+r.outgoingAxe.toLocaleString()+' axes already outbound to F.ScoV.01':'')+
+            (r.id===TW2_NUKE_DEST_ID?' | '+r.incomingAxe.toLocaleString()+' axes incoming (captured)':'')+
+            '</div>').join('')+'</div>' : '')+'</div>';
     panel.innerHTML = '<div id="tw2-nuke-handle" style="cursor:move;touch-action:none;padding:6px 3px;background:#283440;margin:-4px -4px 7px"><b>⚔️ NUKE BUILDER</b> <button id="tw2-nuke-close" style="float:right">×</button></div>'+
         '<p>Destination: <b>'+TW2_NUKE_DEST+'</b></p>'+
         '<p>Sources: ALL owned villages except destination</p>'+
-        '<p>Target: maximum 600 rams, remaining provisions axemen. No source reserves.</p>'+
+        '<p>Target: 600 rams total (already 807 at destination); prioritise axemen. No source reserves.</p>'+
         '<p>Relocation: <b>OFF — no troops will move</b></p>'+
+        overview+
         '<p>Possible relocation commands captured: <b>'+examples.length+'</b> (not yet verified)</p>'+
         (last ? '<p>Last request type: '+esc(last.type)+'</p>' :
         '<p>Capture is diagnostic only. No automatic relocation is enabled.</p>')+
