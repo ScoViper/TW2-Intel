@@ -6174,6 +6174,7 @@ const TW2_NUKE_DEST_ID = 578;
 const TW2_NUKE_UNITS = new Map();
 const TW2_NUKE_FARMS = new Map();
 const TW2_NUKE_AVAILABLE = new Map();
+const TW2_NUKE_UNIT_SHAPES = new Map();
 // Farm screenshot 2026-10-09: 24,000 max, 7,376 used, 16,624 free.
 // Snapshot only; never use this number to authorise a relocation.
 const TW2_NUKE_FARM_SNAPSHOT = {max:24000, used:7376, free:16624};
@@ -6198,19 +6199,40 @@ function tw2NukeObserveResponse(message) {
                 TW2_NUKE_FARMS.set(id,{free:food,time:Date.now(),source:'VillageBatch resources.food'});
             const info = entry['Village/unitInfo'] || entry.unitInfo;
             const units = info?.available_units || info?.availableUnits;
+            // Only an explicitly available-unit field can authorise a count.
+            // Stationed, total, support and outgoing figures are NOT availability.
             const read = key => {
                 const v = units?.[key];
-                if (typeof v === 'number') return Number.isFinite(v) && v >= 0 ? Math.floor(v) : null;
-                if (v && typeof v === 'object') {
-                    for (const k of ['available','count','amount'])
-                        if (typeof v[k] === 'number' && Number.isFinite(v[k]) && v[k] >= 0)
-                            return Math.floor(v[k]);
+                if (typeof v === 'number') return Number.isSafeInteger(v) && v >= 0 ? v : null;
+                if (v && typeof v === 'object' && !Array.isArray(v)) {
+                    for (const k of ['available','available_units','availableUnits','available_count','availableCount']) {
+                        if (Number.isSafeInteger(v[k]) && v[k] >= 0) return v[k];
+                    }
                 }
                 return null;
             };
+            // Show only the two relevant raw entries, with a bounded, safe
+            // structure summary. This avoids the huge unrelated building dump.
+            const compact = value => {
+                if (typeof value === 'number') return Number.isFinite(value) ? value : 'invalid';
+                if (!value || typeof value !== 'object') return value === undefined ? 'missing' : typeof value;
+                const result = {};
+                for (const [k,v] of Object.entries(value).slice(0,12)) {
+                    if (/token|auth|session|cookie|password|secret|useragent/i.test(k)) continue;
+                    result[k] = typeof v === 'number' ? v : (v && typeof v === 'object' ? '(nested object)' : typeof v);
+                }
+                return result;
+            };
+            TW2_NUKE_UNIT_SHAPES.set(id,{
+                id, source:info ? (units ? 'available_units' : 'unitInfo without available_units') : 'no unitInfo',
+                axe:compact(units?.axe),ram:compact(units?.ram),
+                keys:units && typeof units === 'object' ? Object.keys(units).slice(0,24) : [],
+                time:Date.now()
+            });
             const axe = read('axe'), ram = read('ram');
             if (axe !== null && ram !== null)
                 TW2_NUKE_AVAILABLE.set(id,{id,axe,ram,time:Date.now()});
+            else TW2_NUKE_AVAILABLE.delete(id);
         }
         tw2NukeRender();
     }
@@ -6278,7 +6300,10 @@ function tw2NukeObserveResponse(message) {
     if (status) status.textContent='Relevant response types observed: '+TW2_NUKE_OBSERVATIONS.size;
 }
 function tw2NukeShowObservations() {
-    const payload = [...TW2_NUKE_OBSERVATIONS.values()];
+    const payload = {
+        availableUnitSamples:[...TW2_NUKE_UNIT_SHAPES.values()].slice(-30),
+        responseDiagnostics:[...TW2_NUKE_OBSERVATIONS.values()]
+    };
     const area = document.createElement('textarea');
     area.value = JSON.stringify(payload,null,2);
     area.readOnly = true;
@@ -6312,7 +6337,8 @@ function tw2NukeRender() {
         (dest ? 'Destination stationed: '+dest.axe.toLocaleString()+' axes, '+dest.ram.toLocaleString()+' rams; observed incoming: '+seenIncomingAxe.toLocaleString()+' axes (may be partial). ' : 'Destination UnitScreen not captured this session. ')+
         'Captured available source axes: '+sourceAxe.toLocaleString()+' ('+availableRows.length+' villages; coverage unverified).<br>'+
         (recent(liveFarm) ? 'Recent destination free provisions: '+liveFarm.free.toLocaleString()+' (not a relocation authorisation).<br>' : 'Live destination farm capacity not captured.<br>')+
-        '<b>'+planMessage+'</b><br>Automatic relocation remains OFF.'+
+        '<b>'+planMessage+'</b><br>Automatic relocation remains OFF.<br>'+
+        'Available-unit payloads observed: '+TW2_NUKE_UNIT_SHAPES.size+' villages (open diagnostics to inspect axe/ram field shapes).<br>'+
         (availableRows.length ? '<div style="max-height:125px;overflow:auto;margin-top:5px">'+availableRows.map(r=>'<div>Available village '+r.id+': '+r.axe.toLocaleString()+' axes / '+r.ram.toLocaleString()+' rams</div>').join('')+'</div>' : '')+
         (rows.length ? '<div style="max-height:125px;overflow:auto;margin-top:5px">'+rows.map(r=>
             '<div>Village '+r.id+': '+(r.ownArmyFound?r.axe.toLocaleString()+' axes / '+r.ram.toLocaleString()+' rams':'own stationed army not found')+
