@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW2 Intelligence Dashboard
 // @namespace    tw2-intel
-// @version      1.6.0
+// @version      1.6.1
 // @description  TW2 incoming attack intelligence + attack trains + automatic Resource Deposit
 // @match        *://*.tribalwars2.com/*
 // @run-at       document-start
@@ -63,7 +63,7 @@ function saveJSON(key, value) {
 
 const S = window.tw2Intel = {
 
-    version:'1.6.0',
+    version:'1.6.1',
 
     worker:null,
     socketFound:false,
@@ -5988,7 +5988,7 @@ const tw2ScoutPrefs = loadJSON(TW2_SCOUT_KEY, {
     enabled:false, maxMissions:7
 });
 const tw2ScoutLive = {
-    sources:new Map(), sent:new Set(), busy:false,
+    sources:new Map(), sent:new Set(), attempted:new Set(), busy:false,
     last:'Waiting for confirmed source spy availability'
 };
 function tw2ScoutTargets() {
@@ -6005,7 +6005,7 @@ function tw2ScoutTargets() {
 }
 function tw2ScoutRequestTemplates() {
     const records = [...(loadJSON('tw2Intel.spyCapture', []) || []), ...(window.tw2SpyCapture || [])];
-    return records.filter(r => r.type === 'Scouting/sendCommand' &&
+    return records.filter(r => r && r.type === 'Scouting/sendCommand' &&
         r.data && Number.isSafeInteger(Number(r.data.startVillage)) &&
         Number.isSafeInteger(Number(r.data.targetVillage)) &&
         Number(r.data.spys) === 1 &&
@@ -6066,7 +6066,7 @@ async function tw2ScoutCycle(diagnosticOnly=false) {
         let sent = 0;
         for (const target of targets) {
             if (sent >= Math.min(7,Math.max(1,Number(tw2ScoutPrefs.maxMissions)||7))) break;
-            if (tw2ScoutLive.sent.has(target.id)) continue;
+            if (tw2ScoutLive.sent.has(target.id) || tw2ScoutLive.attempted.has(target.id)) continue;
             const ranked = sources.filter(([id,s]) => s.available > 0 && id !== target.id)
                 .sort((a,b) => tw2ScoutDistance(a[1],target)-tw2ScoutDistance(b[1],target));
             if (!ranked.length) break;
@@ -6085,9 +6085,18 @@ async function tw2ScoutCycle(diagnosticOnly=false) {
             data.spys = 1;
             if (S.tokenEmit) data.tokenEmit = S.tokenEmit;
             if (S.userAgent) data.userAgent = S.userAgent;
-            const response = await send('Scouting/sendCommand',data,12000);
-            if (response?.error) {
-                tw2ScoutLive.last = 'Server rejected scouting request; stopped';
+            // An ambiguous timeout can still represent a successful order.
+            // Never retry the same target automatically during this session.
+            tw2ScoutLive.attempted.add(target.id);
+            let response;
+            try {
+                response = await send('Scouting/sendCommand',data,12000);
+            } catch(error) {
+                tw2ScoutLive.last = 'Paused after uncertain scout response: '+String(error.message || error);
+                break;
+            }
+            if (!response || response.error || response.success === false || response.data?.error) {
+                tw2ScoutLive.last = 'Scouting request rejected or unconfirmed; stopped';
                 break;
             }
             source.available -= 1;
@@ -6116,16 +6125,22 @@ function tw2ScoutRender() {
     }
     if (panel.style.display === 'none') return;
     const targets = tw2ScoutTargets();
+    const templates = tw2ScoutRequestTemplates();
+    const freshSources = [...tw2ScoutLive.sources.entries()].filter(([id,v]) =>
+        v.available > 0 && Date.now()-v.updated < 30000 &&
+        templates.some(t => Number(t.data.startVillage) === id));
     panel.innerHTML = '<b>🕵️ ENEMY SCOUT PLANNER</b> '+
         '<button id="tw2-scout-close">×</button><p>Confirmed enemy origins: '+targets.length+
         '</p><p>Automatic dispatch: <b>'+(tw2ScoutPrefs.enabled?'ON':'OFF')+'</b></p>'+
+        '<p>Learned requests: '+templates.length+' | Ready sources: '+freshSources.length+
+        ' | Sent this session: '+tw2ScoutLive.sent.size+'</p>'+ 
         '<p>'+esc(tw2ScoutLive.last)+'</p>'+
         '<p>Up to 7 single-spy missions; buildings/units alternate. '+
         'Only confirmed available spies and learned source requests are used.</p>'+
         '<button id="tw2-scout-toggle">'+(tw2ScoutPrefs.enabled?'Disable':'Enable')+' auto scout</button> '+
         '<button id="tw2-scout-check">Check now</button>'+
         '<p style="opacity:.8">Enemy origins only; no friendly village targeting. '+
-        'Unknown availability always blocks dispatch.</p>';
+        'Unknown availability blocks dispatch; uncertain responses are not retried automatically.</p>';
     panel.querySelector('#tw2-scout-close').onclick=()=>panel.style.display='none';
     panel.querySelector('#tw2-scout-toggle').onclick=()=>{
         tw2ScoutPrefs.enabled=!tw2ScoutPrefs.enabled;
@@ -6326,6 +6341,20 @@ function tw2NukeRender() {
     const recent = r => r && Date.now()-r.time < 120000;
     const availableRows = [...TW2_NUKE_AVAILABLE.values()].filter(r => r.id !== TW2_NUKE_DEST_ID && recent(r));
     const sourceAxe = availableRows.reduce((n,r)=>n+r.axe,0);
+    const sourceRams = availableRows.reduce((n,r)=>n+r.ram,0);
+    const destRams = recent(dest) && dest.ownArmyFound ? dest.ram : null;
+    const ramNeed = destRams === null ? null : Math.max(0,600-destRams);
+    let ramRemaining = ramNeed;
+    const ramPlan = [];
+    if (ramRemaining !== null) {
+        for (const source of [...availableRows].sort((a,b)=>b.ram-a.ram)) {
+            if (ramRemaining <= 0) break;
+            const rams = Math.min(source.ram,ramRemaining);
+            if (!rams) continue;
+            ramPlan.push({id:source.id,rams,axes:source.axe});
+            ramRemaining -= rams;
+        }
+    }
     const seenIncomingAxe = dest ? dest.incomingAxe : 0;
     const farm = TW2_NUKE_FARM_SNAPSHOT;
     const liveFarm = TW2_NUKE_FARMS.get(TW2_NUKE_DEST_ID);
@@ -6335,7 +6364,11 @@ function tw2NukeRender() {
         '<b>READ-ONLY TROOP PREVIEW</b><br>'+
         'Farm screenshot: '+farm.used.toLocaleString()+' / '+farm.max.toLocaleString()+' provisions; '+farm.free.toLocaleString()+' free (snapshot, not live).<br>'+
         (dest ? 'Destination stationed: '+dest.axe.toLocaleString()+' axes, '+dest.ram.toLocaleString()+' rams; observed incoming: '+seenIncomingAxe.toLocaleString()+' axes (may be partial). ' : 'Destination UnitScreen not captured this session. ')+
-        'Captured available source axes: '+sourceAxe.toLocaleString()+' ('+availableRows.length+' villages; coverage unverified).<br>'+
+        'Captured available source axes: '+sourceAxe.toLocaleString()+'; rams: '+sourceRams.toLocaleString()+' ('+availableRows.length+' villages; coverage unverified).<br>'+ 
+        (ramNeed === null ? 'Ram plan: destination ram count not verified.<br>' :
+            'Rams needed to reach 600: '+ramNeed.toLocaleString()+'. Uncovered: '+ramRemaining.toLocaleString()+'.<br>')+
+        (ramPlan.length ? '<b>Suggested source contributions (preview only):</b><br>'+ramPlan.map(r =>
+            'Village '+r.id+': '+r.rams.toLocaleString()+' rams; '+r.axes.toLocaleString()+' available axes<br>').join('') : '')+
         (recent(liveFarm) ? 'Recent destination free provisions: '+liveFarm.free.toLocaleString()+' (not a relocation authorisation).<br>' : 'Live destination farm capacity not captured.<br>')+
         '<b>'+planMessage+'</b><br>Automatic relocation remains OFF.<br>'+
         'Available-unit payloads observed: '+TW2_NUKE_UNIT_SHAPES.size+' villages (open diagnostics to inspect axe/ram field shapes).<br>'+
