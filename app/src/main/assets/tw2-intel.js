@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW2 Intelligence Dashboard
 // @namespace    tw2-intel
-// @version      1.6.1
+// @version      1.7.0
 // @description  TW2 incoming attack intelligence + attack trains + automatic Resource Deposit
 // @match        *://*.tribalwars2.com/*
 // @run-at       document-start
@@ -790,7 +790,7 @@ function receive(msg) {
         }
     }
 
-    tw2NukeObserveResponse(msg);
+    tw2BuildObserveResponse(msg);
     scan(msg,0);
     render();
 }
@@ -5902,7 +5902,7 @@ learnRequest = function(msg) {
         const history = loadJSON('tw2Intel.relocationExamples', []);
         history.push({type:msg.type, data:d, time:new Date().toISOString()});
         saveJSON('tw2Intel.relocationExamples', history.slice(-12));
-        if (typeof tw2NukeRender === 'function') tw2NukeRender();
+        // Nuke Builder removed; manual troop relocation remains untouched.
     }
 };
    // View saved spy capture on mobile
@@ -6174,354 +6174,66 @@ setInterval(tw2ScoutCycle,60000);
 
 
 /* ============================================================
-   F.ScoV.01 NUKE BUILDER — READ-ONLY PREPARATION
-   Relocation is disabled until server request and troop data
-   can be verified. No guessed game commands are sent.
+   ALL VILLAGE BUILDER — safe discovery and planning
+   All owned villages; no guessed building commands.
    ============================================================ */
-const TW2_NUKE_DEST = 'F.ScoV.01';
-const TW2_NUKE_DEST_ID = 578;
-const TW2_NUKE_UNITS = new Map();
-const TW2_NUKE_FARMS = new Map();
-const TW2_NUKE_AVAILABLE = new Map();
-const TW2_NUKE_UNIT_SHAPES = new Map();
-// Farm screenshot 2026-10-09: 24,000 max, 7,376 used, 16,624 free.
-// Snapshot only; never use this number to authorise a relocation.
-const TW2_NUKE_FARM_SNAPSHOT = {max:24000, used:7376, free:16624};
-
-// Passive response diagnostics. Never invent troop totals or send commands.
-const TW2_NUKE_OBSERVATIONS = new Map();
-const TW2_NUKE_HINT = /village|army|unit|troop|provision|command|overview/i;
-function tw2NukeObserveResponse(message) {
+function escapeHTML(x){return String(x).replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));}
+const TW2_BUILD_KEY = 'tw2Intel.allBuilder';
+const TW2_BUILD_TYPES = ['wood','clay','iron','warehouse','barracks'];
+const TW2_BUILD_TARGET_LEVEL = 21;
+const tw2BuildVillages = new Map();
+const tw2BuildSeen = new Map();
+let tw2BuildPrefs = loadJSON(TW2_BUILD_KEY, {enabled:false});
+function tw2BuildObserveResponse(message) {
     if (!message || typeof message !== 'object') return;
     const type = String(message.type || '');
-    if (!TW2_NUKE_HINT.test(type)) return;
-    const data = message.data;
-    if (!data || typeof data !== 'object') return;
-    // Capture available home units separately from stationed/support units.
-    if (type === 'VillageBatch/villageData') {
-        for (const [key,entry] of Object.entries(data)) {
-            const id = Number(key);
-            if (!Number.isInteger(id) || !entry || typeof entry !== 'object') continue;
-            const village = entry['Village/village'] || entry.village;
-            const food = village?.resources?.food;
-            if (typeof food === 'number' && Number.isFinite(food) && food >= 0)
-                TW2_NUKE_FARMS.set(id,{free:food,time:Date.now(),source:'VillageBatch resources.food'});
-            const info = entry['Village/unitInfo'] || entry.unitInfo;
-            const units = info?.available_units || info?.availableUnits;
-            // Only available_units.in_town (or an explicit availability field) can authorise a count.
-            // Stationed, total, support and outgoing figures are NOT availability.
-            const read = key => {
-                const v = units?.[key];
-                if (typeof v === 'number') return Number.isSafeInteger(v) && v >= 0 ? v : null;
-                if (v && typeof v === 'object' && !Array.isArray(v)) {
-                    for (const k of ['in_town','available','available_units','availableUnits','available_count','availableCount']) {
-                        if (Number.isSafeInteger(v[k]) && v[k] >= 0) return v[k];
-                    }
-                }
-                return null;
-            };
-            // Show only the two relevant raw entries, with a bounded, safe
-            // structure summary. This avoids the huge unrelated building dump.
-            const compact = value => {
-                if (typeof value === 'number') return Number.isFinite(value) ? value : 'invalid';
-                if (!value || typeof value !== 'object') return value === undefined ? 'missing' : typeof value;
-                const result = {};
-                for (const [k,v] of Object.entries(value).slice(0,12)) {
-                    if (/token|auth|session|cookie|password|secret|useragent/i.test(k)) continue;
-                    result[k] = typeof v === 'number' ? v : (v && typeof v === 'object' ? '(nested object)' : typeof v);
-                }
-                return result;
-            };
-            TW2_NUKE_UNIT_SHAPES.set(id,{
-                id, source:info ? (units ? 'available_units' : 'unitInfo without available_units') : 'no unitInfo',
-                axe:compact(units?.axe),ram:compact(units?.ram),
-                keys:units && typeof units === 'object' ? Object.keys(units).slice(0,24) : [],
-                time:Date.now()
-            });
-            const axe = read('axe'), ram = read('ram');
-            if (axe !== null && ram !== null)
-                TW2_NUKE_AVAILABLE.set(id,{id,axe,ram,time:Date.now()});
-            else TW2_NUKE_AVAILABLE.delete(id);
+    if (type === 'VillageBatch/villageData' && message.data && typeof message.data === 'object') {
+        for (const [id, item] of Object.entries(message.data)) {
+            if (!item || typeof item !== 'object') continue;
+            const village = item['Village/village'] || item.village || {};
+            const name = String(village.name || village.village_name || '');
+            if (name && village && (village.id != null || village.village_id != null || item['Village/village'])) tw2BuildVillages.set(String(id), {id:String(id),name});
         }
-        tw2NukeRender();
+        tw2BuildRender();
     }
-    // UnitScreen/data exposes actual stationed, outgoing and incoming armies.
-    // Capture separately from the bounded diagnostic field dump.
-    if (type === 'UnitScreen/data') {
-        const id = Number(data.village_id);
-        if (Number.isInteger(id) && id > 0) {
-            const ownId = 849040009; // Account ID confirmed in supplied UnitScreen captures.
-            const armies = Array.isArray(data.defArmies) ? data.defArmies : [];
-            const own = armies.filter(a => Number(a?.village?.character_id) === ownId && Number(a?.village?.village_id) === id);
-            const total = key => own.reduce((n,a) => n + (Number(a[key]) || 0),0);
-            const outgoing = (Array.isArray(data.outgoingArmies) ? data.outgoingArmies : []);
-            const incoming = (Array.isArray(data.incomingArmies) ? data.incomingArmies : []);
-            const sum = (arr,key,filter) => arr.filter(filter).reduce((n,a)=>n+(Number(a[key])||0),0);
-            TW2_NUKE_UNITS.set(id, {
-                id, axe:total('axe'), ram:total('ram'),
-                outgoingAxe:sum(outgoing,'axe',a=>Number(a?.village?.village_id)===TW2_NUKE_DEST_ID),
-                outgoingRam:sum(outgoing,'ram',a=>Number(a?.village?.village_id)===TW2_NUKE_DEST_ID),
-                incomingAxe:sum(incoming,'axe',()=>true),
-                incomingRam:sum(incoming,'ram',()=>true),
-                ownArmyFound:own.length>0,
-                time:Date.now()
-            });
-            if (TW2_NUKE_UNITS.size > 100) TW2_NUKE_UNITS.delete(TW2_NUKE_UNITS.keys().next().value);
-            tw2NukeRender();
-        }
-    }
-    // Read-only, bounded diagnostics: expose relevant unit counts and provision
-    // fields while excluding authentication/session and unrelated game data.
-    const fields = [];
-    const seen = new WeakSet();
-    const sensitive = /token|auth|session|cookie|password|secret|useragent|email|chat/i;
-    const relevant = /unit|axe|ram|provision|population|capacity|village|troop|army|farm|housing/i;
-    function describe(value) {
-        if (value === null) return 'null';
-        if (typeof value === 'number' || typeof value === 'boolean') return JSON.stringify(value);
-        if (typeof value === 'string') return '(string)';
-        return Array.isArray(value) ? '(array)' : '(object)';
-    }
-    function walk(obj,path,depth) {
-        if (!obj || typeof obj !== 'object' || depth > 7 || seen.has(obj) || fields.length >= 110) return;
-        seen.add(obj);
-        for (const [key,value] of Object.entries(obj).slice(0,45)) {
-            if (sensitive.test(key) || fields.length >= 110) continue;
-            const next = path ? path+'.'+key : key;
-            const interesting = relevant.test(key) || relevant.test(path);
-            if (interesting && (value === null || typeof value !== 'object')) {
-                fields.push(next+' = '+describe(value));
-            } else if (relevant.test(key) && value && typeof value === 'object') {
-                fields.push(next+' '+describe(value));
-            }
-            if (value && typeof value === 'object') {
-                if (Array.isArray(value)) {
-                    for (let i=0;i<Math.min(value.length,4);i++) walk(value[i],next+'['+i+']',depth+1);
-                } else walk(value,next,depth+1);
-            }
-        }
-    }
-    walk(data,'',0);
-    if (!fields.length) return;
-    TW2_NUKE_OBSERVATIONS.set(type,{type,fields:fields.slice(0,100),time:new Date().toISOString()});
-    if (TW2_NUKE_OBSERVATIONS.size > 20) TW2_NUKE_OBSERVATIONS.delete(TW2_NUKE_OBSERVATIONS.keys().next().value);
-    const status = document.getElementById('tw2-nuke-observed');
-    if (status) status.textContent='Relevant response types observed: '+TW2_NUKE_OBSERVATIONS.size;
-}
-function tw2NukeShowObservations() {
-    const payload = {
-        availableUnitSamples:[...TW2_NUKE_UNIT_SHAPES.values()].slice(-30),
-        responseDiagnostics:[...TW2_NUKE_OBSERVATIONS.values()]
-    };
-    const area = document.createElement('textarea');
-    area.value = JSON.stringify(payload,null,2);
-    area.readOnly = true;
-    area.style.cssText='position:fixed;top:8%;left:5%;width:90%;height:75%;z-index:2147483647;background:#fff;color:#111;font:12px monospace';
-    const close = document.createElement('button');
-    close.textContent='Close';
-    close.style.cssText='position:fixed;top:84%;left:5%;z-index:2147483647;padding:10px';
-    close.onclick=()=>{area.remove();close.remove();};
-    document.body.append(area,close);
-    area.focus();area.select();
-}
-
-// One-source, explicit-confirmation test. No background relocation loop.
-// Requests are constructed only from a real captured relocation example.
-const TW2_NUKE_TEST_LIMIT = 42;
-const TW2_NUKE_TEST_LOCK = 'tw2Intel.nukeTestPending';
-let tw2NukeTestBusy = false;
-let tw2NukeTestStatus = 'No test dispatched by this version.';
-function tw2NukeTestCandidate() {
-    const examples = loadJSON('tw2Intel.relocationExamples', []);
-    const example = [...examples].reverse().find(e =>
-        e.type === 'Commands/sendCustomArmy' && e.data?.type === 'relocate' &&
-        Number.isSafeInteger(Number(e.data.target_village)) && Number(e.data.target_village) > 0 &&
-        Number.isSafeInteger(Number(e.data.start_village)) && Number(e.data.start_village) > 0 &&
-        e.data.icon !== undefined && e.data.officers &&
-        Object.prototype.hasOwnProperty.call(e.data,'catapult_target'));
-    if (!example) return {reason:'A full relocation request has not been captured yet. This version fixes the capture filter; make ONE small manual relocation to any village, then reopen Nuke Builder.'};
-    // Never infer troop availability from historic or total stationed units.
-    // A valid example may originate from a different village, but only the
-    // exact original source can be used in this controlled test.
-    const source = TW2_NUKE_AVAILABLE.get(Number(example.data.start_village));
-    if (!source || Date.now()-source.time > 120000 || source.axe < 1)
-        return {reason:'Full command captured. Source village '+example.data.start_village+' needs fresh available-unit data (not stationed totals). Open that source village and wait for the live count, then retry within 2 minutes. If counts remain zero, tap View troop-data diagnostics.'};
-    const amount = Math.min(TW2_NUKE_TEST_LIMIT, source.axe);
-    if (!Number.isSafeInteger(amount) || amount < 1) return {reason:'No verified available axes.'};
-    return {source, amount, example};
-}
-async function tw2NukeSendTest() {
-    if (tw2NukeTestBusy) {tw2NukeTestStatus='A test is already running.';tw2NukeRender();return;}
-    if (!S.worker || !S.tokenEmit) {tw2NukeTestStatus='Cannot send: socket or game session unavailable.';tw2NukeRender();return;}
-    if (localStorage.getItem(TW2_NUKE_TEST_LOCK)) {
-        tw2NukeTestStatus='Previous test outcome uncertain. Check the game before retrying.';
-        tw2NukeRender(); return;
-    }
-    const candidate = tw2NukeTestCandidate();
-    if (candidate.reason) { tw2NukeTestStatus='TEST BLOCKED: '+candidate.reason; tw2NukeRender(); document.getElementById('tw2-nuke-test')?.scrollIntoView({block:'nearest'}); return; }
-    const {source,amount,example} = candidate;
-    if (!window.confirm('Send '+amount+' axemen from village '+source.id+' to F.ScoV.01? This is a REAL troop movement. No rams will be sent.')) return;
-    // Lock before sending; an ambiguous timeout must not cause a repeat.
-    localStorage.setItem(TW2_NUKE_TEST_LOCK,JSON.stringify({source:source.id,amount,time:Date.now()}));
-    tw2NukeTestBusy=true;
-    tw2NukeTestStatus='Sending one test command; do not retry while pending.';
-    tw2NukeRender();
-    try {
-        const template=example.data;
-        const payload={start_village:Number(source.id),target_village:TW2_NUKE_DEST_ID,
-            type:'relocate',units:{axe:amount},icon:template.icon,
-            officers:{supporter:template.officers.supporter},catapult_target:template.catapult_target};
-        const result=await send('Commands/sendCustomArmy',payload,15000);
-        if (result?.error) throw new Error('Game rejected the command: '+JSON.stringify(result.error));
-        // A generic response is not sufficient proof of success.
-        tw2NukeTestStatus='Server responded to test from village '+source.id+'; this does not prove dispatch. Check outgoing commands for '+amount+' axemen to F.ScoV.01 before clearing the lock.';
-    } catch(err) {
-        tw2NukeTestStatus='Outcome uncertain ('+String(err.message||err)+'). Check outgoing troops before retrying.';
-    } finally {tw2NukeTestBusy=false;tw2NukeRender();}
-}
-function tw2NukeClearTestLock() {
-    if (!window.confirm('Only clear after checking the source village outgoing troops. Clear test lock?')) return;
-    localStorage.removeItem(TW2_NUKE_TEST_LOCK);
-    tw2NukeTestStatus='Test lock cleared manually.';
-    tw2NukeRender();
-}
-
-function tw2NukeRender() {
-    const panel = document.getElementById('tw2-nuke-panel');
-    if (!panel || panel.style.display === 'none') return;
-    const examples = loadJSON('tw2Intel.relocationExamples', []);
-    const last = examples[examples.length-1];
-    const rows = [...TW2_NUKE_UNITS.values()].sort((a,b)=>a.id-b.id);
-    const dest = TW2_NUKE_UNITS.get(TW2_NUKE_DEST_ID);
-    const recent = r => r && Date.now()-r.time < 120000;
-    const availableRows = [...TW2_NUKE_AVAILABLE.values()].filter(r => r.id !== TW2_NUKE_DEST_ID && recent(r));
-    const sourceAxe = availableRows.reduce((n,r)=>n+r.axe,0);
-    const sourceRams = availableRows.reduce((n,r)=>n+r.ram,0);
-    const destRams = recent(dest) && dest.ownArmyFound ? dest.ram : null;
-    const ramNeed = destRams === null ? null : Math.max(0,600-destRams);
-    let ramRemaining = ramNeed;
-    const ramPlan = [];
-    if (ramRemaining !== null) {
-        for (const source of [...availableRows].sort((a,b)=>b.ram-a.ram)) {
-            if (ramRemaining <= 0) break;
-            const rams = Math.min(source.ram,ramRemaining);
-            if (!rams) continue;
-            ramPlan.push({id:source.id,rams,axes:source.axe});
-            ramRemaining -= rams;
-        }
-    }
-    const seenIncomingAxe = dest ? dest.incomingAxe : 0;
-    const farm = TW2_NUKE_FARM_SNAPSHOT;
-    const liveFarm = TW2_NUKE_FARMS.get(TW2_NUKE_DEST_ID);
-    // Coverage, inbound movements and capacity remain unverified: no executable plan.
-    const planMessage = 'Read-only: '+availableRows.length+' source villages with fresh available-unit counts; full source coverage and incoming movements still need verification.';
-    const overview = '<div style="padding:7px;border:1px solid #64717a;margin:7px 0">'+
-        '<b>READ-ONLY TROOP PREVIEW</b><br>'+
-        'Farm screenshot: '+farm.used.toLocaleString()+' / '+farm.max.toLocaleString()+' provisions; '+farm.free.toLocaleString()+' free (snapshot, not live).<br>'+
-        (dest ? 'Destination stationed: '+dest.axe.toLocaleString()+' axes, '+dest.ram.toLocaleString()+' rams; observed incoming: '+seenIncomingAxe.toLocaleString()+' axes (may be partial). ' : 'Destination UnitScreen not captured this session. ')+
-        'Captured available source axes: '+sourceAxe.toLocaleString()+'; rams: '+sourceRams.toLocaleString()+' ('+availableRows.length+' villages; coverage unverified).<br>'+ 
-        (ramNeed === null ? 'Ram plan: destination ram count not verified.<br>' :
-            'Rams needed to reach 600: '+ramNeed.toLocaleString()+'. Uncovered: '+ramRemaining.toLocaleString()+'.<br>')+
-        (ramPlan.length ? '<b>Suggested source contributions (preview only):</b><br>'+ramPlan.map(r =>
-            'Village '+r.id+': '+r.rams.toLocaleString()+' rams; '+r.axes.toLocaleString()+' available axes<br>').join('') : '')+
-        (recent(liveFarm) ? 'Recent destination free provisions: '+liveFarm.free.toLocaleString()+' (not a relocation authorisation).<br>' : 'Live destination farm capacity not captured.<br>')+
-        '<b>'+planMessage+'</b><br>Bulk relocation remains OFF.<br>'+
-        'Available-unit payloads observed: '+TW2_NUKE_UNIT_SHAPES.size+' villages (open diagnostics to inspect axe/ram field shapes).<br>'+
-        (availableRows.length ? '<div style="max-height:125px;overflow:auto;margin-top:5px">'+availableRows.map(r=>'<div>Available village '+r.id+': '+r.axe.toLocaleString()+' axes / '+r.ram.toLocaleString()+' rams</div>').join('')+'</div>' : '')+
-        (rows.length ? '<div style="max-height:125px;overflow:auto;margin-top:5px">'+rows.map(r=>
-            '<div>Village '+r.id+': '+(r.ownArmyFound?r.axe.toLocaleString()+' axes / '+r.ram.toLocaleString()+' rams':'own stationed army not found')+
-            (r.outgoingAxe?' | '+r.outgoingAxe.toLocaleString()+' axes already outbound to F.ScoV.01':'')+
-            (r.id===TW2_NUKE_DEST_ID?' | '+r.incomingAxe.toLocaleString()+' axes incoming (captured)':'')+
-            '</div>').join('')+'</div>' : '')+'</div>';
-    panel.innerHTML = '<div id="tw2-nuke-handle" style="cursor:move;touch-action:none;padding:6px 3px;background:#283440;margin:-4px -4px 7px"><b>⚔️ NUKE BUILDER</b> <button id="tw2-nuke-close" style="float:right">×</button></div>'+
-        '<p>Destination: <b>'+TW2_NUKE_DEST+'</b></p>'+
-        '<p>Sources: ALL owned villages except destination</p>'+
-        '<p>Target: up to 600 rams total; prioritise axemen. No source reserves. Existing destination rams are counted when observed.</p>'+
-        '<p>Bulk relocation: <b>OFF</b>. Single-village test requires your confirmation.</p>'+
-        overview+
-        '<p>Possible relocation commands captured: <b>'+examples.length+'</b> (complete: '+examples.filter(e=>e.data?.icon!==undefined && e.data?.officers && Object.prototype.hasOwnProperty.call(e.data,'catapult_target')).length+')</p>'+
-        '<div style="border:1px solid #8b8b65;padding:7px;margin:8px 0"><b>CONTROLLED AXEMAN TEST</b><br>'+
-        '<span style="display:block;padding:5px;background:#303b48;overflow-wrap:anywhere">'+esc(tw2NukeTestStatus)+'</span><br>'+
-        (localStorage.getItem(TW2_NUKE_TEST_LOCK)?'<b>Test lock active — verify outgoing troops.</b><br>':'')+
-        '<button id="tw2-nuke-test" type="button">Send one confirmed test (max 42 axes)</button> '+
-        '<button id="tw2-nuke-unlock" type="button">Clear test lock</button></div>'+
-        (last ? '<p>Last request type: '+esc(last.type)+'</p>' :
-        '<p>Capture is diagnostic only. No automatic relocation is enabled.</p>')+
-        '<p><b>Captured request details (latest 4):</b></p>'+
-        (examples.length ? examples.slice(-4).reverse().map((r,i) =>
-            '<details style="margin:5px 0;border:1px solid #46515b;padding:5px"'+(i===0?' open':'')+'>'+ 
-            '<summary>'+esc(r.type)+' — '+esc(r.time || '')+'</summary>'+ 
-            '<pre style="white-space:pre-wrap;overflow-wrap:anywhere;user-select:text;">'+
-            esc(JSON.stringify(r.data || {},null,2))+'</pre></details>'
-        ).join('') : '<p>No requests recorded yet.</p>')+
-        '<p id="tw2-nuke-observed">Relevant response types observed: '+TW2_NUKE_OBSERVATIONS.size+'</p>'+
-        '<button id="tw2-nuke-observe" type="button">View troop-data diagnostics</button> '+
-        '<button id="tw2-nuke-copy" type="button">Copy captured details</button>'+ 
-        '<p style="opacity:.8">These are candidate commands, not yet confirmed relocations. No automatic troop movement. Verified troop counts and provision capacity are still required.</p>';
-    panel.querySelector('#tw2-nuke-observe').onclick = tw2NukeShowObservations;
-    panel.querySelector('#tw2-nuke-test').onclick = tw2NukeSendTest;
-    panel.querySelector('#tw2-nuke-unlock').onclick = tw2NukeClearTestLock;
-    panel.querySelector('#tw2-nuke-close').onclick = () => panel.style.display='none';
-    panel.querySelector('#tw2-nuke-copy').onclick = () => {
-        const safe = examples.slice(-4).map(r => ({type:r.type,time:r.time,data:r.data}));
-        const output = JSON.stringify(safe,null,2);
-        const textarea = document.createElement('textarea');
-        textarea.value = output;
-        textarea.style.cssText = 'position:fixed;left:5%;top:10%;width:90%;height:75%;z-index:2147483647;background:#fff;color:#111;font:12px monospace';
-        document.body.appendChild(textarea);
-        textarea.focus(); textarea.select();
-        try { document.execCommand('copy'); } catch(e) {}
-        textarea.addEventListener('blur', () => textarea.remove(), {once:true});
-        panel.querySelector('#tw2-nuke-copy').textContent = 'Details selected/copied — tap outside to close';
-    };
-    if (!panel.dataset.dragReady) {
-        panel.dataset.dragReady = '1';
-        let active = null;
-        panel.addEventListener('pointerdown', e => {
-            if (!e.target.closest('#tw2-nuke-handle') || e.target.closest('button')) return;
-            const r = panel.getBoundingClientRect();
-            active = {id:e.pointerId, dx:e.clientX-r.left, dy:e.clientY-r.top};
-            panel.setPointerCapture(e.pointerId);
-            e.preventDefault();
-        });
-        panel.addEventListener('pointermove', e => {
-            if (!active || e.pointerId !== active.id) return;
-            const x = Math.max(0,Math.min(window.innerWidth-80,e.clientX-active.dx));
-            const y = Math.max(0,Math.min(window.innerHeight-45,e.clientY-active.dy));
-            panel.style.left=x+'px'; panel.style.top=y+'px'; panel.style.bottom='auto'; panel.style.right='auto';
-            e.preventDefault();
-        });
-        function finish(e) {
-            if (!active || e.pointerId !== active.id) return;
-            active=null;
-            saveJSON('tw2Intel.nukePosition',{left:parseInt(panel.style.left,10)||0,top:parseInt(panel.style.top,10)||0});
-        }
-        panel.addEventListener('pointerup',finish);
-        panel.addEventListener('pointercancel',finish);
+    if (/building|construction|queue|upgrade/i.test(type)) {
+        tw2BuildSeen.set(type, Date.now());
+        if (tw2BuildSeen.size > 30) tw2BuildSeen.delete(tw2BuildSeen.keys().next().value);
+        tw2BuildRender();
     }
 }
-function tw2NukeBoot() {
-    if (!document.body || document.getElementById('tw2-nuke-open')) return;
-    const button = document.createElement('button');
-    button.id='tw2-nuke-open'; button.textContent='⚔️ NUKE BUILDER';
-    button.style.cssText='position:fixed;bottom:72px;left:10px;z-index:2147483646;padding:7px 10px;background:#473b28;color:white;font:12px Arial';
+function tw2BuildRender() {
+    const panel = document.getElementById('tw2-all-builder-panel');
+    if (!panel) return;
+    const villages = [...tw2BuildVillages.values()].sort((a,b)=>a.name.localeCompare(b.name));
+    const observed = [...tw2BuildSeen.keys()];
+    panel.innerHTML = '<div style="display:flex;justify-content:space-between;gap:8px"><b>🏗️ ALL VILLAGE BUILDER</b><button id="tw2-h-close">×</button></div>'+
+      '<p>Scope: all discovered owned villages. Timber Camp, Clay Pit, Iron Mine, Warehouse and Barracks → target level 21 (or game maximum if lower).</p>'+
+      '<p><b>Automatic upgrades: NOT YET ENABLED</b></p>'+
+      '<p>Building upgrades require a verified game request and response. This version only observes and plans; it will not spend resources or queue construction. Village ownership and build requests must be verified before automation is enabled.</p>'+
+      '<p>Owned villages discovered this session: <b>'+villages.length+'</b></p>'+
+      '<div style="max-height:110px;overflow:auto">'+(villages.map(v=>escapeHTML(v.name)+' (#'+escapeHTML(v.id)+')').join('<br>')||'No owned villages detected yet')+'</div>'+
+      '<p>Building-related response types seen: '+observed.length+'</p>'+
+      '<details><summary>Diagnostics</summary><pre style="white-space:pre-wrap;word-break:break-word">'+escapeHTML(JSON.stringify(observed,null,2))+'</pre></details>';
+    panel.querySelector('#tw2-h-close').onclick=()=>panel.style.display='none';
+}
+function tw2BuildBoot() {
+    if (!document.body || document.getElementById('tw2-all-builder-open')) return;
+    const button=document.createElement('button');
+    button.id='tw2-all-builder-open'; button.textContent='🏗️ BUILD ALL';
+    button.style.cssText='position:fixed;bottom:72px;left:10px;z-index:2147483646;padding:7px 10px;background:#315344;color:white;font:12px Arial';
     button.onclick=()=>{
-        let panel=document.getElementById('tw2-nuke-panel');
+        let panel=document.getElementById('tw2-all-builder-panel');
         if (!panel) {
-            panel=document.createElement('div'); panel.id='tw2-nuke-panel';
-            panel.style.cssText='position:fixed;top:115px;left:15px;z-index:2147483647;background:#141d25;color:white;border:1px solid #9a8250;padding:10px;width:265px;max-width:calc(100vw - 30px);max-height:55vh;overflow:auto;font:12px Arial,sans-serif;box-sizing:border-box';
+            panel=document.createElement('div'); panel.id='tw2-all-builder-panel';
+            panel.style.cssText='position:fixed;top:115px;left:15px;z-index:2147483647;background:#141d25;color:white;border:1px solid #688f79;padding:10px;width:290px;max-width:calc(100vw - 30px);max-height:55vh;overflow:auto;font:12px Arial,sans-serif;box-sizing:border-box';
             document.body.appendChild(panel);
-            const saved = loadJSON('tw2Intel.nukePosition',null);
-            if (saved && Number.isFinite(Number(saved.left)) && Number.isFinite(Number(saved.top))) {
-                panel.style.left=Math.max(0,Math.min(window.innerWidth-80,Number(saved.left)))+'px';
-                panel.style.top=Math.max(0,Math.min(window.innerHeight-45,Number(saved.top)))+'px';
-            }
         }
-        panel.style.display='block'; tw2NukeRender();
+        panel.style.display='block'; tw2BuildRender();
     };
     document.body.appendChild(button);
 }
-if (document.body) tw2NukeBoot();
-else document.addEventListener('DOMContentLoaded',tw2NukeBoot,{once:true});
+if (document.body) tw2BuildBoot();
+else document.addEventListener('DOMContentLoaded',tw2BuildBoot,{once:true});
 
 })();
