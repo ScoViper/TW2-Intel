@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TW2 Intelligence Dashboard
 // @namespace    tw2-intel
-// @version      1.7.0
+// @version      1.7.2
 // @description  TW2 incoming attack intelligence + attack trains + automatic Resource Deposit
 // @match        *://*.tribalwars2.com/*
 // @run-at       document-start
@@ -63,7 +63,7 @@ function saveJSON(key, value) {
 
 const S = window.tw2Intel = {
 
-    version:'1.6.1',
+    version:'1.7.2',
 
     worker:null,
     socketFound:false,
@@ -414,6 +414,7 @@ window.Worker = new Proxy(
                 function(data,...rest) {
 
                     learnRequest(data);
+                    tw2BuildObserveRequest(data);
 
                     return nativePost(
                         data,
@@ -6178,44 +6179,88 @@ setInterval(tw2ScoutCycle,60000);
    All owned villages; no guessed building commands.
    ============================================================ */
 function escapeHTML(x){return String(x).replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));}
-const TW2_BUILD_KEY = 'tw2Intel.allBuilder';
 const TW2_BUILD_TYPES = ['wood','clay','iron','warehouse','barracks'];
 const TW2_BUILD_TARGET_LEVEL = 21;
 const tw2BuildVillages = new Map();
 const tw2BuildSeen = new Map();
-let tw2BuildPrefs = loadJSON(TW2_BUILD_KEY, {enabled:false});
+const tw2BuildRequests = [];
+const tw2BuildResponses = [];
+const tw2BuildPending = new Map();
+function tw2BuildSanitize(value, depth=0) {
+    if (depth>5) return '[depth limit]';
+    if (Array.isArray(value)) return value.slice(0,30).map(v=>tw2BuildSanitize(v,depth+1));
+    if (value && typeof value==='object') {
+        const out={};
+        for (const [key,val] of Object.entries(value).slice(0,60)) {
+            if (/token|session|auth|cookie|password|secret|useragent|signature|csrf/i.test(key)) continue;
+            out[key]=tw2BuildSanitize(val,depth+1);
+        }
+        return out;
+    }
+    return typeof value==='string' ? value.slice(0,200) : value;
+}
+function tw2BuildObserveRequest(message) {
+    if (!message || typeof message!=='object') return;
+    const type=String(message.type||'');
+    if (!/building|construction|queue|upgrade/i.test(type)) return;
+    const entry={at:new Date().toISOString(),type,id:message.id??null,data:tw2BuildSanitize(message.data)};
+    tw2BuildRequests.push(entry);
+    if (tw2BuildRequests.length>25) tw2BuildRequests.shift();
+    if (message.id!=null) {
+        tw2BuildPending.set(String(message.id),entry);
+        if (tw2BuildPending.size>100) tw2BuildPending.delete(tw2BuildPending.keys().next().value);
+    }
+    tw2BuildRender();
+}
 function tw2BuildObserveResponse(message) {
     if (!message || typeof message !== 'object') return;
-    const type = String(message.type || '');
-    if (type === 'VillageBatch/villageData' && message.data && typeof message.data === 'object') {
-        for (const [id, item] of Object.entries(message.data)) {
-            if (!item || typeof item !== 'object') continue;
-            const village = item['Village/village'] || item.village || {};
-            const name = String(village.name || village.village_name || '');
-            if (name && village && (village.id != null || village.village_id != null || item['Village/village'])) tw2BuildVillages.set(String(id), {id:String(id),name});
+    const type=String(message.type||'');
+    if (type==='VillageBatch/villageData' && message.data && typeof message.data==='object') {
+        for (const [id,item] of Object.entries(message.data)) {
+            if (!item || typeof item!=='object') continue;
+            const village=item['Village/village']||item.village||{};
+            const name=String(village.name||village.village_name||'');
+            if (name && (village.id!=null||village.village_id!=null||item['Village/village']))
+                tw2BuildVillages.set(String(id),{id:String(id),name});
         }
-        tw2BuildRender();
     }
-    if (/building|construction|queue|upgrade/i.test(type)) {
-        tw2BuildSeen.set(type, Date.now());
-        if (tw2BuildSeen.size > 30) tw2BuildSeen.delete(tw2BuildSeen.keys().next().value);
-        tw2BuildRender();
+    const matching=message.id!=null ? tw2BuildPending.get(String(message.id)) : null;
+    if (matching || /building|construction|queue|upgrade/i.test(type)) {
+        tw2BuildSeen.set(type,Date.now());
+        if (tw2BuildSeen.size>30) tw2BuildSeen.delete(tw2BuildSeen.keys().next().value);
+        tw2BuildResponses.push({at:new Date().toISOString(),type,id:message.id??null,
+            matchingRequest:matching?.type||null,data:tw2BuildSanitize(message.data)});
+        if (tw2BuildResponses.length>25) tw2BuildResponses.shift();
+        if (matching) tw2BuildPending.delete(String(message.id));
     }
+    tw2BuildRender();
+}
+function tw2BuildDiagnostics() {
+    return {version:'1.7.2',targetLevel:TW2_BUILD_TARGET_LEVEL,buildings:TW2_BUILD_TYPES,
+        villageCount:tw2BuildVillages.size,automaticUpgradesEnabled:false,
+        requests:tw2BuildRequests,responses:tw2BuildResponses,
+        responseTypes:[...tw2BuildSeen.keys()]};
 }
 function tw2BuildRender() {
-    const panel = document.getElementById('tw2-all-builder-panel');
+    const panel=document.getElementById('tw2-all-builder-panel');
     if (!panel) return;
-    const villages = [...tw2BuildVillages.values()].sort((a,b)=>a.name.localeCompare(b.name));
-    const observed = [...tw2BuildSeen.keys()];
-    panel.innerHTML = '<div style="display:flex;justify-content:space-between;gap:8px"><b>🏗️ ALL VILLAGE BUILDER</b><button id="tw2-h-close">×</button></div>'+
-      '<p>Scope: all discovered owned villages. Timber Camp, Clay Pit, Iron Mine, Warehouse and Barracks → target level 21 (or game maximum if lower).</p>'+
-      '<p><b>Automatic upgrades: NOT YET ENABLED</b></p>'+
-      '<p>Building upgrades require a verified game request and response. This version only observes and plans; it will not spend resources or queue construction. Village ownership and build requests must be verified before automation is enabled.</p>'+
-      '<p>Owned villages discovered this session: <b>'+villages.length+'</b></p>'+
-      '<div style="max-height:110px;overflow:auto">'+(villages.map(v=>escapeHTML(v.name)+' (#'+escapeHTML(v.id)+')').join('<br>')||'No owned villages detected yet')+'</div>'+
-      '<p>Building-related response types seen: '+observed.length+'</p>'+
-      '<details><summary>Diagnostics</summary><pre style="white-space:pre-wrap;word-break:break-word">'+escapeHTML(JSON.stringify(observed,null,2))+'</pre></details>';
+    const villages=[...tw2BuildVillages.values()].sort((a,b)=>a.name.localeCompare(b.name));
+    const diagnostics=tw2BuildDiagnostics();
+    panel.innerHTML='<div style="display:flex;justify-content:space-between;gap:8px"><b>🏗️ ALL VILLAGE BUILDER</b><button id="tw2-h-close">×</button></div>'+
+      '<p>All owned villages: Timber Camp, Clay Pit, Iron Mine, Warehouse and Barracks → level 21 (or lower game maximum).</p>'+
+      '<p><b>Automatic upgrades: OFF — awaiting verified upgrade request and successful response.</b></p>'+
+      '<p>Owned villages: <b>'+villages.length+'</b> | Captured building requests: <b>'+tw2BuildRequests.length+'</b> | Responses: <b>'+tw2BuildResponses.length+'</b></p>'+
+      '<div style="max-height:80px;overflow:auto">'+(villages.map(v=>escapeHTML(v.name)+' (#'+escapeHTML(v.id)+')').join('<br>')||'No villages detected')+'</div>'+
+      '<p>Last captured request: '+escapeHTML(tw2BuildRequests.at(-1)?.type||'none')+'</p>'+
+      '<p>Last response: '+escapeHTML(tw2BuildResponses.at(-1)?.type||'none')+'</p>'+
+      '<button id="tw2-build-copy">Copy full building diagnostics</button> '+
+      '<details><summary>Diagnostics</summary><pre style="white-space:pre-wrap;word-break:break-word">'+escapeHTML(JSON.stringify(diagnostics,null,2))+'</pre></details>';
     panel.querySelector('#tw2-h-close').onclick=()=>panel.style.display='none';
+    panel.querySelector('#tw2-build-copy').onclick=()=>{
+        const value=JSON.stringify(tw2BuildDiagnostics(),null,2);
+        if (navigator.clipboard?.writeText) navigator.clipboard.writeText(value).catch(()=>window.prompt('Copy diagnostics:',value));
+        else window.prompt('Copy diagnostics:',value);
+    };
 }
 function tw2BuildBoot() {
     if (!document.body || document.getElementById('tw2-all-builder-open')) return;
