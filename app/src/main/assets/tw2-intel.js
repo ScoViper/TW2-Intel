@@ -464,7 +464,7 @@ function learnRequest(msg) {
         msg.data;
 
     if (msg.type === 'Commands/sendCustomArmy' && data && data.type === 'relocate') {
-        const safe = {start_village:data.start_village,target_village:data.target_village,type:data.type,units:{axe:Number(data.units?.axe)||0,ram:Number(data.units?.ram)||0}};
+        const safe = {start_village:data.start_village,target_village:data.target_village,type:data.type,units:{axe:Number(data.units?.axe)||0,ram:Number(data.units?.ram)||0},icon:Number(data.icon)||0,officers:{supporter:Number(data.officers?.supporter)||0},catapult_target:String(data.catapult_target||'headquarter')};
         const examples = loadJSON('tw2Intel.relocationExamples', []);
         examples.push({type:msg.type,data:safe,time:new Date().toISOString()});
         saveJSON('tw2Intel.relocationExamples',examples.slice(-12));
@@ -6331,6 +6331,63 @@ function tw2NukeShowObservations() {
     area.focus();area.select();
 }
 
+// One-source, explicit-confirmation test. No background relocation loop.
+// Requests are constructed only from a real captured relocation example.
+const TW2_NUKE_TEST_LIMIT = 42;
+const TW2_NUKE_TEST_LOCK = 'tw2Intel.nukeTestPending';
+let tw2NukeTestBusy = false;
+let tw2NukeTestStatus = 'No test dispatched by this version.';
+function tw2NukeTestCandidate() {
+    const examples = loadJSON('tw2Intel.relocationExamples', []);
+    const example = [...examples].reverse().find(e =>
+        e.type === 'Commands/sendCustomArmy' && e.data?.type === 'relocate' &&
+        Number(e.data.target_village) === TW2_NUKE_DEST_ID &&
+        Number.isInteger(Number(e.data.start_village)) &&
+        Number(e.data.start_village) !== TW2_NUKE_DEST_ID &&
+        e.data.icon !== undefined && e.data.officers && e.data.catapult_target);
+    if (!example) return {reason:'A complete manual relocation request must be captured using this version first.'};
+    const source = TW2_NUKE_AVAILABLE.get(Number(example.data.start_village));
+    if (!source || Date.now()-source.time > 30000 || source.axe < 1)
+        return {reason:'Open the source village to refresh its available axes (within 30 seconds).'};
+    const amount = Math.min(TW2_NUKE_TEST_LIMIT, source.axe);
+    if (!Number.isSafeInteger(amount) || amount < 1) return {reason:'No verified available axes.'};
+    return {source, amount, example};
+}
+async function tw2NukeSendTest() {
+    if (tw2NukeTestBusy || !S.worker || !S.tokenEmit) return;
+    if (localStorage.getItem(TW2_NUKE_TEST_LOCK)) {
+        tw2NukeTestStatus='Previous test outcome uncertain. Check the game before retrying.';
+        tw2NukeRender(); return;
+    }
+    const candidate = tw2NukeTestCandidate();
+    if (candidate.reason) { tw2NukeTestStatus=candidate.reason; tw2NukeRender(); return; }
+    const {source,amount,example} = candidate;
+    if (!window.confirm('Send '+amount+' axemen from village '+source.id+' to F.ScoV.01? This is a REAL troop movement. No rams will be sent.')) return;
+    // Lock before sending; an ambiguous timeout must not cause a repeat.
+    localStorage.setItem(TW2_NUKE_TEST_LOCK,JSON.stringify({source:source.id,amount,time:Date.now()}));
+    tw2NukeTestBusy=true;
+    tw2NukeTestStatus='Sending one test command; do not retry while pending.';
+    tw2NukeRender();
+    try {
+        const template=example.data;
+        const payload={start_village:Number(source.id),target_village:TW2_NUKE_DEST_ID,
+            type:'relocate',units:{axe:amount},icon:template.icon,
+            officers:{supporter:template.officers.supporter},catapult_target:template.catapult_target};
+        const result=await send('Commands/sendCustomArmy',payload,15000);
+        if (result?.error) throw new Error('Game rejected the command: '+JSON.stringify(result.error));
+        // A generic response is not sufficient proof of success.
+        tw2NukeTestStatus='Request returned; verify the troop movement in game before clearing the lock.';
+    } catch(err) {
+        tw2NukeTestStatus='Outcome uncertain ('+String(err.message||err)+'). Check outgoing troops before retrying.';
+    } finally {tw2NukeTestBusy=false;tw2NukeRender();}
+}
+function tw2NukeClearTestLock() {
+    if (!window.confirm('Only clear after checking the source village outgoing troops. Clear test lock?')) return;
+    localStorage.removeItem(TW2_NUKE_TEST_LOCK);
+    tw2NukeTestStatus='Test lock cleared manually.';
+    tw2NukeRender();
+}
+
 function tw2NukeRender() {
     const panel = document.getElementById('tw2-nuke-panel');
     if (!panel || panel.style.display === 'none') return;
@@ -6370,7 +6427,7 @@ function tw2NukeRender() {
         (ramPlan.length ? '<b>Suggested source contributions (preview only):</b><br>'+ramPlan.map(r =>
             'Village '+r.id+': '+r.rams.toLocaleString()+' rams; '+r.axes.toLocaleString()+' available axes<br>').join('') : '')+
         (recent(liveFarm) ? 'Recent destination free provisions: '+liveFarm.free.toLocaleString()+' (not a relocation authorisation).<br>' : 'Live destination farm capacity not captured.<br>')+
-        '<b>'+planMessage+'</b><br>Automatic relocation remains OFF.<br>'+
+        '<b>'+planMessage+'</b><br>Bulk relocation remains OFF.<br>'+
         'Available-unit payloads observed: '+TW2_NUKE_UNIT_SHAPES.size+' villages (open diagnostics to inspect axe/ram field shapes).<br>'+
         (availableRows.length ? '<div style="max-height:125px;overflow:auto;margin-top:5px">'+availableRows.map(r=>'<div>Available village '+r.id+': '+r.axe.toLocaleString()+' axes / '+r.ram.toLocaleString()+' rams</div>').join('')+'</div>' : '')+
         (rows.length ? '<div style="max-height:125px;overflow:auto;margin-top:5px">'+rows.map(r=>
@@ -6382,9 +6439,14 @@ function tw2NukeRender() {
         '<p>Destination: <b>'+TW2_NUKE_DEST+'</b></p>'+
         '<p>Sources: ALL owned villages except destination</p>'+
         '<p>Target: up to 600 rams total; prioritise axemen. No source reserves. Existing destination rams are counted when observed.</p>'+
-        '<p>Relocation: <b>OFF — no troops will move</b></p>'+
+        '<p>Bulk relocation: <b>OFF</b>. Single-village test requires your confirmation.</p>'+
         overview+
-        '<p>Possible relocation commands captured: <b>'+examples.length+'</b> (not yet verified)</p>'+
+        '<p>Possible relocation commands captured: <b>'+examples.length+'</b> (manual example observed)</p>'+
+        '<div style="border:1px solid #8b8b65;padding:7px;margin:8px 0"><b>CONTROLLED AXEMAN TEST</b><br>'+
+        esc(tw2NukeTestStatus)+'<br>'+
+        (localStorage.getItem(TW2_NUKE_TEST_LOCK)?'<b>Test lock active — verify outgoing troops.</b><br>':'')+
+        '<button id="tw2-nuke-test" type="button">Send one confirmed test (max 42 axes)</button> '+
+        '<button id="tw2-nuke-unlock" type="button">Clear test lock</button></div>'+
         (last ? '<p>Last request type: '+esc(last.type)+'</p>' :
         '<p>Capture is diagnostic only. No automatic relocation is enabled.</p>')+
         '<p><b>Captured request details (latest 4):</b></p>'+
@@ -6399,6 +6461,8 @@ function tw2NukeRender() {
         '<button id="tw2-nuke-copy" type="button">Copy captured details</button>'+ 
         '<p style="opacity:.8">These are candidate commands, not yet confirmed relocations. No automatic troop movement. Verified troop counts and provision capacity are still required.</p>';
     panel.querySelector('#tw2-nuke-observe').onclick = tw2NukeShowObservations;
+    panel.querySelector('#tw2-nuke-test').onclick = tw2NukeSendTest;
+    panel.querySelector('#tw2-nuke-unlock').onclick = tw2NukeClearTestLock;
     panel.querySelector('#tw2-nuke-close').onclick = () => panel.style.display='none';
     panel.querySelector('#tw2-nuke-copy').onclick = () => {
         const safe = examples.slice(-4).map(r => ({type:r.type,time:r.time,data:r.data}));
