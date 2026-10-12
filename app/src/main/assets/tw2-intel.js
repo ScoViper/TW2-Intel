@@ -5889,7 +5889,7 @@ learnRequest = function(msg) {
     }
     // Capture possible relocation requests without storing session credentials.
     // The game may use a generic command name rather than "relocate".
-    if (/relocat|command\/send|sendcommand|unit.*(move|transfer)|transfer.*unit/i.test(msg.type)) {
+    if (msg.type === 'Commands/sendCustomArmy' && msg.data?.type === 'relocate') {
         const d = clone(msg.data);
         function redact(v) {
             if (!v || typeof v !== 'object') return;
@@ -6335,14 +6335,17 @@ function tw2NukeTestCandidate() {
     const examples = loadJSON('tw2Intel.relocationExamples', []);
     const example = [...examples].reverse().find(e =>
         e.type === 'Commands/sendCustomArmy' && e.data?.type === 'relocate' &&
-        Number.isInteger(Number(e.data.target_village)) && Number(e.data.target_village) > 0 &&
-        Number.isInteger(Number(e.data.start_village)) &&
-        Number(e.data.start_village) !== TW2_NUKE_DEST_ID &&
-        e.data.icon !== undefined && e.data.officers && e.data.catapult_target);
-    if (!example) return {reason:'No complete manual relocation example found. Make a small manual relocation (any destination), then reopen this panel.'};
+        Number.isSafeInteger(Number(e.data.target_village)) && Number(e.data.target_village) > 0 &&
+        Number.isSafeInteger(Number(e.data.start_village)) && Number(e.data.start_village) > 0 &&
+        e.data.icon !== undefined && e.data.officers &&
+        Object.prototype.hasOwnProperty.call(e.data,'catapult_target'));
+    if (!example) return {reason:'A full relocation request has not been captured yet. This version fixes the capture filter; make ONE small manual relocation to any village, then reopen Nuke Builder.'};
+    // Never infer troop availability from historic or total stationed units.
+    // A valid example may originate from a different village, but only the
+    // exact original source can be used in this controlled test.
     const source = TW2_NUKE_AVAILABLE.get(Number(example.data.start_village));
     if (!source || Date.now()-source.time > 120000 || source.axe < 1)
-        return {reason:'Source village '+example.data.start_village+' has no recent verified available axemen. Open that source village, wait for troop data, and retry within 2 minutes.'};
+        return {reason:'Full command captured. Source village '+example.data.start_village+' needs fresh available-unit data (not stationed totals). Open that source village and wait for the live count, then retry within 2 minutes. If counts remain zero, tap View troop-data diagnostics.'};
     const amount = Math.min(TW2_NUKE_TEST_LIMIT, source.axe);
     if (!Number.isSafeInteger(amount) || amount < 1) return {reason:'No verified available axes.'};
     return {source, amount, example};
@@ -6371,7 +6374,7 @@ async function tw2NukeSendTest() {
         const result=await send('Commands/sendCustomArmy',payload,15000);
         if (result?.error) throw new Error('Game rejected the command: '+JSON.stringify(result.error));
         // A generic response is not sufficient proof of success.
-        tw2NukeTestStatus='Game replied to test from village '+source.id+'. Verify the '+amount+' axemen are travelling to F.ScoV.01 before clearing the lock.';
+        tw2NukeTestStatus='Server responded to test from village '+source.id+'; this does not prove dispatch. Check outgoing commands for '+amount+' axemen to F.ScoV.01 before clearing the lock.';
     } catch(err) {
         tw2NukeTestStatus='Outcome uncertain ('+String(err.message||err)+'). Check outgoing troops before retrying.';
     } finally {tw2NukeTestBusy=false;tw2NukeRender();}
@@ -6436,7 +6439,7 @@ function tw2NukeRender() {
         '<p>Target: up to 600 rams total; prioritise axemen. No source reserves. Existing destination rams are counted when observed.</p>'+
         '<p>Bulk relocation: <b>OFF</b>. Single-village test requires your confirmation.</p>'+
         overview+
-        '<p>Possible relocation commands captured: <b>'+examples.length+'</b> (manual example observed)</p>'+
+        '<p>Possible relocation commands captured: <b>'+examples.length+'</b> (complete: '+examples.filter(e=>e.data?.icon!==undefined && e.data?.officers && Object.prototype.hasOwnProperty.call(e.data,'catapult_target')).length+')</p>'+
         '<div style="border:1px solid #8b8b65;padding:7px;margin:8px 0"><b>CONTROLLED AXEMAN TEST</b><br>'+
         '<span style="display:block;padding:5px;background:#303b48;overflow-wrap:anywhere">'+esc(tw2NukeTestStatus)+'</span><br>'+
         (localStorage.getItem(TW2_NUKE_TEST_LOCK)?'<b>Test lock active — verify outgoing troops.</b><br>':'')+
