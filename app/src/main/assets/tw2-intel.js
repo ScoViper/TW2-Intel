@@ -6285,7 +6285,7 @@ function tw2BuildObserveResponse(message) {
     tw2BuildRender();
 }
 function tw2BuildDiagnostics() {
-    return {version:'1.7.5',targetLevels:TW2_BUILD_TARGETS,buildings:TW2_BUILD_TYPES,
+    return {version:'1.7.6',targetLevels:TW2_BUILD_TARGETS,buildings:TW2_BUILD_TYPES,
         villageCount:tw2BuildVillages.size,automaticUpgradesEnabled:tw2BuildState.enabled,knownBuildingLevels:tw2BuildLevels.size,queuedUpgrades:tw2BuildQueued.size,successfulUpgrades:tw2BuildState.successful,lastStatus:tw2BuildState.last,
         requests:tw2BuildRequests,responses:tw2BuildResponses,
         responseTypes:[...tw2BuildSeen.keys()]};
@@ -6351,7 +6351,7 @@ async function tw2BuildCycle() {
     try {
         let sent=0;
         for (const [key,known] of tw2BuildLevels) {
-            if (!tw2BuildState.enabled || sent>=3) break;
+            if (!tw2BuildState.enabled || sent>=1) break;
             const [idText,building]=key.split(':');
             const id=Number(idText), target=TW2_BUILD_TARGETS[building];
             if (!tw2BuildVillages.has(String(id)) || !target || known.level>=target || tw2BuildQueued.has(key) ||
@@ -6364,13 +6364,25 @@ async function tw2BuildCycle() {
             sent++;
             try {
                 const response=await send('Building/upgrade',data,12000);
-                if (response?.type==='Building/upgrading' &&
-                    Number(response.data?.village_id)===id && response.data?.building?.[building]) {
+                // The server confirms a queued construction in data.job, not data.building.
+                // Validate village, building, level and job identity before proceeding.
+                const result=response?.data;
+                const job=result?.job;
+                const confirmed=response?.type==='Building/upgrading' &&
+                    Number(result?.village_id)===id &&
+                    job && typeof job==='object' &&
+                    job.building===building && job.type==='up' &&
+                    Number.isSafeInteger(Number(job.id)) && Number(job.id)>0 &&
+                    Number.isSafeInteger(Number(job.level)) &&
+                    Number(job.level)>known.level && Number(job.level)<=target;
+                if (confirmed) {
                     tw2BuildQueued.add(key);
                     tw2BuildState.successful++;
-                    tw2BuildState.last='Queued '+building+' in village '+id;
+                    tw2BuildState.last='Confirmed queued '+building+' level '+job.level+' in village '+id+' (job '+job.id+')';
                 } else {
-                    tw2BuildState.last='Paused after unverified upgrade response for village '+id;
+                    // Ambiguous responses must never be retried automatically.
+                    tw2BuildState.last='Paused after unverified upgrade response for village '+id+
+                        ' ('+String(response?.type||'no response type')+')';
                     tw2BuildState.enabled=false;
                     localStorage.setItem('tw2Intel.builderEnabled','0');
                     break;
