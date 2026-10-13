@@ -6260,7 +6260,7 @@ function tw2BuildObserveResponse(message) {
     tw2BuildRender();
 }
 function tw2BuildDiagnostics() {
-    return {version:'1.7.3',targetLevel:TW2_BUILD_TARGET_LEVEL,buildings:TW2_BUILD_TYPES,
+    return {version:'1.7.4',targetLevels:TW2_BUILD_TARGETS,buildings:TW2_BUILD_TYPES,
         villageCount:tw2BuildVillages.size,automaticUpgradesEnabled:tw2BuildState.enabled,knownBuildingLevels:tw2BuildLevels.size,successfulUpgrades:tw2BuildState.successful,lastStatus:tw2BuildState.last,
         requests:tw2BuildRequests,responses:tw2BuildResponses,
         responseTypes:[...tw2BuildSeen.keys()]};
