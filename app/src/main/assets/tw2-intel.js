@@ -63,7 +63,7 @@ function saveJSON(key, value) {
 
 const S = window.tw2Intel = {
 
-    version:'1.7.2',
+    version:'1.7.3',
 
     worker:null,
     socketFound:false,
@@ -6180,12 +6180,22 @@ setInterval(tw2ScoutCycle,60000);
    ============================================================ */
 function escapeHTML(x){return String(x).replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));}
 const TW2_BUILD_TYPES = ['wood','clay','iron','warehouse','barracks'];
-const TW2_BUILD_TARGET_LEVEL = 21;
+const TW2_BUILD_TARGETS = Object.freeze({wood:30,clay:30,iron:30,warehouse:30,barracks:21});
 const tw2BuildVillages = new Map();
 const tw2BuildSeen = new Map();
 const tw2BuildRequests = [];
 const tw2BuildResponses = [];
 const tw2BuildPending = new Map();
+const tw2BuildLevels = new Map();
+const tw2BuildAttempted = new Set();
+const tw2BuildState = {enabled:localStorage.getItem('tw2Intel.builderEnabled')==='1', busy:false, last:'Waiting for verified building levels', successful:0};
+let tw2BuildTemplate = null;
+function tw2BuildRecordLevel(villageId,building,level) {
+    const id=Number(villageId), n=Number(level);
+    if (!Number.isSafeInteger(id)||id<=0||!Object.hasOwn(TW2_BUILD_TARGETS,building)||!Number.isSafeInteger(n)||n<0||n>30) return;
+    tw2BuildLevels.set(id+':'+building,{level:n,at:Date.now()});
+}
+
 function tw2BuildSanitize(value, depth=0) {
     if (depth>5) return '[depth limit]';
     if (Array.isArray(value)) return value.slice(0,30).map(v=>tw2BuildSanitize(v,depth+1));
@@ -6204,6 +6214,12 @@ function tw2BuildObserveRequest(message) {
     const type=String(message.type||'');
     if (!/building|construction|queue|upgrade/i.test(type)) return;
     const entry={at:new Date().toISOString(),type,id:message.id??null,data:tw2BuildSanitize(message.data)};
+    if (type==='Building/upgrade' && message.data && typeof message.data==='object' &&
+        Object.hasOwn(TW2_BUILD_TARGETS,String(message.data.building)) &&
+        Number.isSafeInteger(Number(message.data.village_id)) &&
+        message.data.premium===false) {
+        tw2BuildTemplate={type,data:structuredClone(message.data)};
+    }
     tw2BuildRequests.push(entry);
     if (tw2BuildRequests.length>25) tw2BuildRequests.shift();
     if (message.id!=null) {
@@ -6224,6 +6240,14 @@ function tw2BuildObserveResponse(message) {
                 tw2BuildVillages.set(String(id),{id:String(id),name});
         }
     }
+    if (type==='Building/upgrading' && message.data && typeof message.data==='object') {
+        const d=message.data;
+        if (d.building && typeof d.building==='object') {
+            for (const [building,value] of Object.entries(d.building)) {
+                if (value && typeof value==='object') tw2BuildRecordLevel(d.village_id,building,value.level);
+            }
+        }
+    }
     const matching=message.id!=null ? tw2BuildPending.get(String(message.id)) : null;
     if (matching || /building|construction|queue|upgrade/i.test(type)) {
         tw2BuildSeen.set(type,Date.now());
@@ -6236,8 +6260,8 @@ function tw2BuildObserveResponse(message) {
     tw2BuildRender();
 }
 function tw2BuildDiagnostics() {
-    return {version:'1.7.2',targetLevel:TW2_BUILD_TARGET_LEVEL,buildings:TW2_BUILD_TYPES,
-        villageCount:tw2BuildVillages.size,automaticUpgradesEnabled:false,
+    return {version:'1.7.3',targetLevel:TW2_BUILD_TARGET_LEVEL,buildings:TW2_BUILD_TYPES,
+        villageCount:tw2BuildVillages.size,automaticUpgradesEnabled:tw2BuildState.enabled,knownBuildingLevels:tw2BuildLevels.size,successfulUpgrades:tw2BuildState.successful,lastStatus:tw2BuildState.last,
         requests:tw2BuildRequests,responses:tw2BuildResponses,
         responseTypes:[...tw2BuildSeen.keys()]};
 }
@@ -6247,8 +6271,11 @@ function tw2BuildRender() {
     const villages=[...tw2BuildVillages.values()].sort((a,b)=>a.name.localeCompare(b.name));
     const diagnostics=tw2BuildDiagnostics();
     panel.innerHTML='<div style="display:flex;justify-content:space-between;gap:8px"><b>🏗️ ALL VILLAGE BUILDER</b><button id="tw2-h-close">×</button></div>'+
-      '<p>All owned villages: Timber Camp, Clay Pit, Iron Mine, Warehouse and Barracks → level 21 (or lower game maximum).</p>'+
-      '<p><b>Automatic upgrades: OFF — awaiting verified upgrade request and successful response.</b></p>'+
+      '<p>All owned villages: Timber Camp, Clay Pit, Iron Mine and Warehouse → level 30; Barracks → level 21.</p>'+
+      '<p><b>Automatic upgrades: '+(tw2BuildState.enabled?'ON (verified levels only)':'OFF')+'</b></p>'+
+      '<p>'+escapeHTML(tw2BuildState.last)+'</p>'+
+      '<button id="tw2-build-toggle">'+(tw2BuildState.enabled?'Disable auto builder':'Enable guarded auto builder')+'</button> '+
+      '<button id="tw2-build-run">Check eligible upgrades now</button>'+
       '<p>Owned villages: <b>'+villages.length+'</b> | Captured building requests: <b>'+tw2BuildRequests.length+'</b> | Responses: <b>'+tw2BuildResponses.length+'</b></p>'+
       '<div style="max-height:80px;overflow:auto">'+(villages.map(v=>escapeHTML(v.name)+' (#'+escapeHTML(v.id)+')').join('<br>')||'No villages detected')+'</div>'+
       '<p>Last captured request: '+escapeHTML(tw2BuildRequests.at(-1)?.type||'none')+'</p>'+
@@ -6256,6 +6283,13 @@ function tw2BuildRender() {
       '<button id="tw2-build-copy">Copy full building diagnostics</button> '+
       '<details><summary>Diagnostics</summary><pre style="white-space:pre-wrap;word-break:break-word">'+escapeHTML(JSON.stringify(diagnostics,null,2))+'</pre></details>';
     panel.querySelector('#tw2-h-close').onclick=()=>panel.style.display='none';
+    panel.querySelector('#tw2-build-toggle').onclick=()=>{
+        tw2BuildState.enabled=!tw2BuildState.enabled;
+        localStorage.setItem('tw2Intel.builderEnabled',tw2BuildState.enabled?'1':'0');
+        tw2BuildRender();
+        if (tw2BuildState.enabled) tw2BuildCycle();
+    };
+    panel.querySelector('#tw2-build-run').onclick=()=>tw2BuildCycle();
     panel.querySelector('#tw2-build-copy').onclick=()=>{
         const value=JSON.stringify(tw2BuildDiagnostics(),null,2);
         if (navigator.clipboard?.writeText) navigator.clipboard.writeText(value).catch(()=>window.prompt('Copy diagnostics:',value));
@@ -6278,6 +6312,56 @@ function tw2BuildBoot() {
     };
     document.body.appendChild(button);
 }
+
+// Conservative automatic construction: never infer levels from village names or map points.
+// Only upgrade a building when its level was observed from a real server response this session.
+// A request timeout is ambiguous: never retry that village/building during this session.
+async function tw2BuildCycle() {
+    if (!tw2BuildState.enabled || tw2BuildState.busy) return;
+    if (!S.worker || !S.tokenEmit || !tw2BuildTemplate) {
+        tw2BuildState.last='Paused: waiting for game connection and captured Building/upgrade template';
+        tw2BuildRender(); return;
+    }
+    tw2BuildState.busy=true;
+    try {
+        let sent=0;
+        for (const [key,known] of tw2BuildLevels) {
+            if (!tw2BuildState.enabled || sent>=3) break;
+            const [idText,building]=key.split(':');
+            const id=Number(idText), target=TW2_BUILD_TARGETS[building];
+            if (!tw2BuildVillages.has(String(id)) || !target || known.level>=target ||
+                Date.now()-known.at>10*60*1000 || tw2BuildAttempted.has(key)) continue;
+            const data=structuredClone(tw2BuildTemplate.data);
+            data.village_id=id; data.building=building; data.location='menu'; data.premium=false;
+            if (S.tokenEmit) data.tokenEmit=S.tokenEmit;
+            if (S.userAgent) data.userAgent=S.userAgent;
+            tw2BuildAttempted.add(key);
+            sent++;
+            try {
+                const response=await send('Building/upgrade',data,12000);
+                if (response?.type==='Building/upgrading' &&
+                    Number(response.data?.village_id)===id && response.data?.building?.[building]) {
+                    tw2BuildRecordLevel(id,building,response.data.building[building].level);
+                    tw2BuildState.successful++;
+                    tw2BuildState.last='Queued '+building+' in village '+id;
+                } else {
+                    tw2BuildState.last='Paused after unverified upgrade response for village '+id;
+                    tw2BuildState.enabled=false;
+                    localStorage.setItem('tw2Intel.builderEnabled','0');
+                    break;
+                }
+            } catch(error) {
+                tw2BuildState.last='Paused after uncertain upgrade result: '+String(error.message||error);
+                tw2BuildState.enabled=false;
+                localStorage.setItem('tw2Intel.builderEnabled','0');
+                break;
+            }
+        }
+        if (!sent && tw2BuildState.enabled) tw2BuildState.last='No eligible verified levels available; waiting for fresh building data';
+    } finally {tw2BuildState.busy=false;tw2BuildRender();}
+}
+setInterval(tw2BuildCycle,60000);
+
 if (document.body) tw2BuildBoot();
 else document.addEventListener('DOMContentLoaded',tw2BuildBoot,{once:true});
 
