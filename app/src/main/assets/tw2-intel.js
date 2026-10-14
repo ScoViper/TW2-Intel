@@ -6190,6 +6190,9 @@ const tw2BuildLevels = new Map();
 const tw2BuildQueued = new Set();
 const tw2BuildAttempted = new Set();
 const tw2BuildState = {enabled:localStorage.getItem('tw2Intel.builderEnabled')==='1', busy:false, last:'Waiting for verified building levels', successful:0};
+// Confirmed from captured manual Building/upgrade requests in this game session.
+// Do not depend on a fresh manual click every login: this minimal shape is known.
+const TW2_BUILD_REQUEST_FIELDS = Object.freeze({location:'menu',premium:false});
 let tw2BuildTemplate = null;
 function tw2BuildRecordLevel(villageId,building,level) {
     const id=Number(villageId), n=Number(level);
@@ -6285,8 +6288,8 @@ function tw2BuildObserveResponse(message) {
     tw2BuildRender();
 }
 function tw2BuildDiagnostics() {
-    return {version:'1.7.6',targetLevels:TW2_BUILD_TARGETS,buildings:TW2_BUILD_TYPES,
-        villageCount:tw2BuildVillages.size,automaticUpgradesEnabled:tw2BuildState.enabled,knownBuildingLevels:tw2BuildLevels.size,queuedUpgrades:tw2BuildQueued.size,successfulUpgrades:tw2BuildState.successful,lastStatus:tw2BuildState.last,
+    return {version:'1.7.7',targetLevels:TW2_BUILD_TARGETS,buildings:TW2_BUILD_TYPES,
+        villageCount:tw2BuildVillages.size,automaticUpgradesEnabled:tw2BuildState.enabled,knownBuildingLevels:tw2BuildLevels.size,queuedUpgrades:tw2BuildQueued.size,workerReady:!!S.worker,sessionReady:!!S.tokenEmit,manualTemplateCaptured:!!tw2BuildTemplate,successfulUpgrades:tw2BuildState.successful,lastStatus:tw2BuildState.last,
         requests:tw2BuildRequests,responses:tw2BuildResponses,
         responseTypes:[...tw2BuildSeen.keys()]};
 }
@@ -6343,8 +6346,8 @@ function tw2BuildBoot() {
 // A request timeout is ambiguous: never retry that village/building during this session.
 async function tw2BuildCycle() {
     if (!tw2BuildState.enabled || tw2BuildState.busy) return;
-    if (!S.worker || !S.tokenEmit || !tw2BuildTemplate) {
-        tw2BuildState.last='Paused: waiting for game connection and captured Building/upgrade template';
+    if (!S.worker || !S.tokenEmit) {
+        tw2BuildState.last='Paused: waiting for active game worker and session token';
         tw2BuildRender(); return;
     }
     tw2BuildState.busy=true;
@@ -6356,8 +6359,9 @@ async function tw2BuildCycle() {
             const id=Number(idText), target=TW2_BUILD_TARGETS[building];
             if (!tw2BuildVillages.has(String(id)) || !target || known.level>=target || tw2BuildQueued.has(key) ||
                 Date.now()-known.at>10*60*1000 || tw2BuildAttempted.has(key)) continue;
-            const data=structuredClone(tw2BuildTemplate.data);
-            data.village_id=id; data.building=building; data.location='menu'; data.premium=false;
+            // Use only the four fields observed in actual manual upgrade requests.
+            // A previously captured template is optional, not required.
+            const data={building,village_id:id,...TW2_BUILD_REQUEST_FIELDS};
             if (S.tokenEmit) data.tokenEmit=S.tokenEmit;
             if (S.userAgent) data.userAgent=S.userAgent;
             tw2BuildAttempted.add(key);
