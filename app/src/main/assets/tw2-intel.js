@@ -6189,6 +6189,8 @@ const tw2BuildPending = new Map();
 const tw2BuildLevels = new Map();
 const tw2BuildQueued = new Set();
 const tw2BuildAttempted = new Set();
+const tw2BuildBlocked = new Map();
+let tw2BuildLastError = null;
 const tw2BuildState = {enabled:localStorage.getItem('tw2Intel.builderEnabled')==='1', busy:false, last:'Waiting for verified building levels', successful:0};
 // Confirmed from captured manual Building/upgrade requests in this game session.
 // Do not depend on a fresh manual click every login: this minimal shape is known.
@@ -6288,8 +6290,8 @@ function tw2BuildObserveResponse(message) {
     tw2BuildRender();
 }
 function tw2BuildDiagnostics() {
-    return {version:'1.7.7',targetLevels:TW2_BUILD_TARGETS,buildings:TW2_BUILD_TYPES,
-        villageCount:tw2BuildVillages.size,automaticUpgradesEnabled:tw2BuildState.enabled,knownBuildingLevels:tw2BuildLevels.size,queuedUpgrades:tw2BuildQueued.size,workerReady:!!S.worker,sessionReady:!!S.tokenEmit,manualTemplateCaptured:!!tw2BuildTemplate,successfulUpgrades:tw2BuildState.successful,lastStatus:tw2BuildState.last,
+    return {version:'1.7.8',targetLevels:TW2_BUILD_TARGETS,buildings:TW2_BUILD_TYPES,
+        villageCount:tw2BuildVillages.size,automaticUpgradesEnabled:tw2BuildState.enabled,knownBuildingLevels:tw2BuildLevels.size,queuedUpgrades:tw2BuildQueued.size,workerReady:!!S.worker,sessionReady:!!S.tokenEmit,manualTemplateCaptured:!!tw2BuildTemplate,successfulUpgrades:tw2BuildState.successful,lastStatus:tw2BuildState.last,lastServerError:tw2BuildLastError,blockedBuildings:tw2BuildBlocked.size,
         requests:tw2BuildRequests,responses:tw2BuildResponses,
         responseTypes:[...tw2BuildSeen.keys()]};
 }
@@ -6302,6 +6304,7 @@ function tw2BuildRender() {
       '<p>All owned villages: Timber Camp, Clay Pit, Iron Mine and Warehouse → level 30; Barracks → level 21.</p>'+
       '<p><b>Automatic upgrades: '+(tw2BuildState.enabled?'ON (verified levels only)':'OFF')+'</b></p>'+
       '<p>'+escapeHTML(tw2BuildState.last)+'</p>'+
+      (tw2BuildLastError?'<p><b>Last server error:</b> '+escapeHTML(JSON.stringify(tw2BuildLastError))+'</p>':'')+
       '<button id="tw2-build-toggle">'+(tw2BuildState.enabled?'Disable auto builder':'Enable guarded auto builder')+'</button> '+
       '<button id="tw2-build-run">Check eligible upgrades now</button>'+
       '<p>Owned villages: <b>'+villages.length+'</b> | Captured building requests: <b>'+tw2BuildRequests.length+'</b> | Responses: <b>'+tw2BuildResponses.length+'</b></p>'+
@@ -6358,7 +6361,8 @@ async function tw2BuildCycle() {
             const [idText,building]=key.split(':');
             const id=Number(idText), target=TW2_BUILD_TARGETS[building];
             if (!tw2BuildVillages.has(String(id)) || !target || known.level>=target || tw2BuildQueued.has(key) ||
-                Date.now()-known.at>10*60*1000 || tw2BuildAttempted.has(key)) continue;
+                Date.now()-known.at>10*60*1000 || tw2BuildAttempted.has(key) ||
+                (tw2BuildBlocked.get(key)||0)>Date.now()) continue;
             // Use only the four fields observed in actual manual upgrade requests.
             // A previously captured template is optional, not required.
             const data={building,village_id:id,...TW2_BUILD_REQUEST_FIELDS};
@@ -6383,7 +6387,27 @@ async function tw2BuildCycle() {
                     tw2BuildQueued.add(key);
                     tw2BuildState.successful++;
                     tw2BuildState.last='Confirmed queued '+building+' level '+job.level+' in village '+id+' (job '+job.id+')';
+                } else if (response?.type==='System/error') {
+                    // A server error does NOT confirm a queued upgrade. Keep the attempted
+                    // key locked for this session so a failed/ambiguous action is never spammed.
+                    const raw=tw2BuildSanitize(response?.data ?? null);
+                    tw2BuildLastError={villageId:id,building,responseType:response.type,details:raw,at:new Date().toISOString()};
+                    const description=JSON.stringify(raw||{}).toLowerCase();
+                    // Only a clearly described, ordinary resource/queue restriction may be
+                    // skipped. Unknown errors are potentially authentication or protocol
+                    // failures and must stop the builder for inspection.
+                    const temporary=/not enough resources|insufficient resources|not enough wood|not enough clay|not enough iron|queue is full|building queue full|construction queue full|not enough storage|insufficient storage/.test(description);
+                    if (temporary) {
+                        tw2BuildBlocked.set(key,Date.now()+10*60*1000);
+                        tw2BuildState.last='Skipped '+building+' in village '+id+' due to server restriction; other villages remain eligible';
+                    } else {
+                        tw2BuildState.last='Paused: server rejected '+building+' in village '+id+'. See Last server error in diagnostics';
+                        tw2BuildState.enabled=false;
+                        localStorage.setItem('tw2Intel.builderEnabled','0');
+                        break;
+                    }
                 } else {
+                    tw2BuildLastError={villageId:id,building,responseType:String(response?.type||'none'),details:tw2BuildSanitize(response?.data??null),at:new Date().toISOString()};
                     // Ambiguous responses must never be retried automatically.
                     tw2BuildState.last='Paused after unverified upgrade response for village '+id+
                         ' ('+String(response?.type||'no response type')+')';
@@ -6392,6 +6416,7 @@ async function tw2BuildCycle() {
                     break;
                 }
             } catch(error) {
+                tw2BuildLastError={kind:'transport',message:String(error.message||error),at:new Date().toISOString()};
                 tw2BuildState.last='Paused after uncertain upgrade result: '+String(error.message||error);
                 tw2BuildState.enabled=false;
                 localStorage.setItem('tw2Intel.builderEnabled','0');
