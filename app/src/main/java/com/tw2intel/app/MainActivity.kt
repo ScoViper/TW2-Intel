@@ -474,6 +474,17 @@ WebViewCompat.addDocumentStartJavaScript(
     setOf("https://*.tribalwars2.com")
 )
 
+val villageInventoryScript =
+    assets.open("village-inventory.js")
+        .bufferedReader()
+        .use { it.readText() }
+
+WebViewCompat.addDocumentStartJavaScript(
+    webView,
+    villageInventoryScript,
+    setOf("https://*.tribalwars2.com")
+)
+
 }
 
 
