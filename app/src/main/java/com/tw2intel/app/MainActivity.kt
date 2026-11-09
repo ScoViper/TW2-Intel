@@ -485,6 +485,17 @@ WebViewCompat.addDocumentStartJavaScript(
     setOf("https://*.tribalwars2.com")
 )
 
+val unifiedCollectorScript =
+    assets.open("village-collector.js")
+        .bufferedReader()
+        .use { it.readText() }
+
+WebViewCompat.addDocumentStartJavaScript(
+    webView,
+    unifiedCollectorScript,
+    setOf("https://*.tribalwars2.com")
+)
+
 }
 
 
