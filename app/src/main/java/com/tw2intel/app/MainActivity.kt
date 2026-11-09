@@ -462,6 +462,18 @@ WebViewCompat.addDocumentStartJavaScript(
     setOf("https://*.tribalwars2.com")
 )
        
+
+val villageDiagnosticsScript =
+    assets.open("village-diagnostics.js")
+        .bufferedReader()
+        .use { it.readText() }
+
+WebViewCompat.addDocumentStartJavaScript(
+    webView,
+    villageDiagnosticsScript,
+    setOf("https://*.tribalwars2.com")
+)
+
 }
 
 
