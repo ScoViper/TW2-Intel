@@ -450,7 +450,19 @@ class MainActivity : Activity() {
                     "https://*.tribalwars2.com"
                 )
             )
-        }
+ 
+val warCommanderScript =
+    assets.open("war-commander.js")
+        .bufferedReader()
+        .use { it.readText() }
+
+WebViewCompat.addDocumentStartJavaScript(
+    webView,
+    warCommanderScript,
+    setOf("https://*.tribalwars2.com")
+)
+       
+}
 
 
         webView.webChromeClient =
